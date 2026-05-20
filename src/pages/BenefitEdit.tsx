@@ -425,7 +425,7 @@ export function BenefitEdit() {
                 title="Corre el pipeline de ingestion para este beneficio específico vía GitHub Actions"
                 type="button"
               >
-                {opLoading["reprocess"] ? "Disparando..." : "Reprocesar este beneficio"}
+                {opLoading["reprocess"] ? "Disparando..." : "Re-publicar beneficio"}
               </button>
               {opResults["reprocess"]?.error && (
                 <p className="text-xs text-red-600">{opResults["reprocess"].error}</p>
@@ -449,7 +449,7 @@ export function BenefitEdit() {
                 title="Regenera la descripción corta de IA para este beneficio usando GPT-4o mini"
                 type="button"
               >
-                {opLoading["ai_desc"] ? "Generando..." : "Refresh descripción IA"}
+                {opLoading["ai_desc"] ? "Generando..." : "Regenerar descripción con IA"}
               </button>
               {opResults["ai_desc"]?.error && (
                 <p className="text-xs text-red-600">{opResults["ai_desc"].error}</p>
