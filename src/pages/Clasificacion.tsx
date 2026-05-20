@@ -101,7 +101,15 @@ const REDEMPTION_METHOD_OPTIONS = [
   { value: "manual_receipt_upload", label: "Subida manual de boleta" },
 ];
 
-const DIAS_OPTIONS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
+const DIAS_OPTIONS = [
+  "lunes",
+  "martes",
+  "miércoles",
+  "jueves",
+  "viernes",
+  "sábado",
+  "domingo",
+];
 
 const BLOCKER_FIELD_MAP: Record<string, keyof FormState> = {
   category_id_missing: "category_slug",
@@ -119,6 +127,31 @@ const BLOCKER_LABELS: Record<string, string> = {
   image_url_missing: "Sin imagen",
 };
 
+const REQUIRED_PUBLICATION_FIELDS = [
+  {
+    blocker: "category_id_missing",
+    field: "category_slug",
+    label: "Categoría",
+  },
+  { blocker: "channel_missing", field: "channel", label: "Canal" },
+  {
+    blocker: "ai_description_missing",
+    field: "ai_description",
+    label: "Descripción IA",
+  },
+  {
+    blocker: "needs_manual_review",
+    field: "resolve_needs_review",
+    label: "Revisión manual resuelta",
+  },
+  { blocker: "image_url_missing", field: null, label: "Imagen" },
+  {
+    blocker: "semantic_vector_missing",
+    field: null,
+    label: "Vector semántico",
+  },
+] as const;
+
 // ─── Styling helpers ──────────────────────────────────────────────────────────
 
 const inputCls =
@@ -130,7 +163,11 @@ const blockerSelectCls = `${blockerInputCls} bg-amber-50`;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function serializeRedemptionDetails(method: string, code: string, url: string): Record<string, unknown> | null {
+function serializeRedemptionDetails(
+  method: string,
+  code: string,
+  url: string,
+): Record<string, unknown> | null {
   if (method === "code" || method === "coupon") {
     return code.trim() ? { code: code.trim() } : null;
   }
@@ -143,7 +180,9 @@ function serializeRedemptionDetails(method: string, code: string, url: string): 
   return null;
 }
 
-function deserializeRedemptionDetails(rd: Record<string, unknown> | null | undefined): { code: string; url: string } {
+function deserializeRedemptionDetails(
+  rd: Record<string, unknown> | null | undefined,
+): { code: string; url: string } {
   if (!rd) return { code: "", url: "" };
   return {
     code: String(rd.code ?? ""),
@@ -151,25 +190,84 @@ function deserializeRedemptionDetails(rd: Record<string, unknown> | null | undef
   };
 }
 
-function serializeBenefitRules(vals: FormState): Record<string, unknown> | null {
+function serializeBenefitRules(
+  vals: FormState,
+): Record<string, unknown> | null {
   const rules: Record<string, unknown> = {};
-  if (vals.br_tope_mensual.trim()) rules.tope_mensual = Number(vals.br_tope_mensual);
-  if (vals.br_tope_diario.trim()) rules.tope_diario = Number(vals.br_tope_diario);
+  if (vals.br_tope_mensual.trim())
+    rules.tope_mensual = Number(vals.br_tope_mensual);
+  if (vals.br_tope_diario.trim())
+    rules.tope_diario = Number(vals.br_tope_diario);
   if (vals.br_dias_validos.length) rules.dias_validos = vals.br_dias_validos;
   if (vals.br_min_compra.trim()) rules.min_compra = Number(vals.br_min_compra);
-  if (vals.br_cuotas_minimas.trim()) rules.cuotas_minimas = Number(vals.br_cuotas_minimas);
+  if (vals.br_cuotas_minimas.trim())
+    rules.cuotas_minimas = Number(vals.br_cuotas_minimas);
   return Object.keys(rules).length ? rules : null;
 }
 
-function deserializeBenefitRules(br: Record<string, unknown> | null | undefined) {
-  if (!br) return { tope_mensual: "", tope_diario: "", dias_validos: [] as string[], min_compra: "", cuotas_minimas: "" };
+function deserializeBenefitRules(
+  br: Record<string, unknown> | null | undefined,
+) {
+  if (!br)
+    return {
+      tope_mensual: "",
+      tope_diario: "",
+      dias_validos: [] as string[],
+      min_compra: "",
+      cuotas_minimas: "",
+    };
   return {
     tope_mensual: br.tope_mensual != null ? String(br.tope_mensual) : "",
     tope_diario: br.tope_diario != null ? String(br.tope_diario) : "",
-    dias_validos: Array.isArray(br.dias_validos) ? (br.dias_validos as string[]) : [],
+    dias_validos: Array.isArray(br.dias_validos)
+      ? (br.dias_validos as string[])
+      : [],
     min_compra: br.min_compra != null ? String(br.min_compra) : "",
     cuotas_minimas: br.cuotas_minimas != null ? String(br.cuotas_minimas) : "",
   };
+}
+
+function hasOwnValue(
+  source: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  return !!source && Object.prototype.hasOwnProperty.call(source, key);
+}
+
+function hasTextValue(value: unknown) {
+  return value != null && String(value).trim() !== "";
+}
+
+function getCurrentValueSource({
+  aiValue,
+  correctedFields,
+  currentValue,
+  field,
+  rawValue,
+}: {
+  aiValue?: string;
+  correctedFields?: Record<string, unknown> | null;
+  currentValue: string | boolean;
+  field: string;
+  rawValue?: unknown;
+}) {
+  const correctionField =
+    field === "resolve_needs_review" ? "needs_review" : field;
+  if (hasOwnValue(correctedFields, correctionField)) return "Corrección manual";
+  if (typeof currentValue === "boolean")
+    return currentValue ? "Corrección manual" : "Pendiente";
+  if (!currentValue.trim()) return "Pendiente";
+  if (aiValue && currentValue === aiValue) return "Pipeline/IA";
+  if (hasTextValue(rawValue) && currentValue === String(rawValue))
+    return "Raw scrapeado";
+  return "Manual sin guardar";
+}
+
+function getSourceBadgeClass(source: string) {
+  if (source === "Corrección manual") return "bg-teal-50 text-teal-700";
+  if (source === "Manual sin guardar") return "bg-amber-50 text-amber-700";
+  if (source === "Pendiente") return "bg-red-50 text-red-600";
+  return "bg-gray-100 text-gray-600";
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -177,26 +275,33 @@ function deserializeBenefitRules(br: Record<string, unknown> | null | undefined)
 function Field({
   label,
   isBlocker,
-  aiHint,
+  required,
+  source,
   hint,
   children,
 }: {
   label: string;
   isBlocker?: boolean;
-  aiHint?: string;
+  required?: boolean;
+  source?: string;
   hint?: string;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-2">
-        <label className={`text-sm font-medium ${isBlocker ? "text-amber-700" : "text-gray-700"}`}>
+        <label
+          className={`text-sm font-medium ${isBlocker ? "text-amber-700" : "text-gray-700"}`}
+        >
           {label}
+          {required && <span className="ml-1 text-red-500">*</span>}
           {isBlocker && <span className="ml-1 text-amber-500">●</span>}
         </label>
-        {aiHint && (
-          <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-xs text-indigo-600">
-            IA sugiere: {aiHint}
+        {source && (
+          <span
+            className={`rounded px-1.5 py-0.5 text-xs ${getSourceBadgeClass(source)}`}
+          >
+            Origen: {source}
           </span>
         )}
         {hint && <span className="text-xs text-gray-400">{hint}</span>}
@@ -219,7 +324,14 @@ function RedemptionDetailsFields({
   onCode: (v: string) => void;
   onUrl: (v: string) => void;
 }) {
-  if (!method || method === "bin_detection" || method === "membership_validation" || method === "automatic_checkout" || method === "gift_with_purchase" || method === "manual_receipt_upload") {
+  if (
+    !method ||
+    method === "bin_detection" ||
+    method === "membership_validation" ||
+    method === "automatic_checkout" ||
+    method === "gift_with_purchase" ||
+    method === "manual_receipt_upload"
+  ) {
     return null;
   }
   if (method === "code" || method === "coupon") {
@@ -270,7 +382,9 @@ function BenefitRulesFields({
 }) {
   const toggleDia = (dia: string) => {
     const current = vals.br_dias_validos;
-    const next = current.includes(dia) ? current.filter((d) => d !== dia) : [...current, dia];
+    const next = current.includes(dia)
+      ? current.filter((d) => d !== dia)
+      : [...current, dia];
     onChange("br_dias_validos", next);
   };
 
@@ -320,7 +434,9 @@ function BenefitRulesFields({
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-sm font-medium text-gray-700">Días válidos</label>
+        <label className="text-sm font-medium text-gray-700">
+          Días válidos
+        </label>
         <div className="flex flex-wrap gap-2">
           {DIAS_OPTIONS.map((dia) => (
             <button
@@ -352,8 +468,12 @@ export function Clasificacion() {
   const [loadingCards, setLoadingCards] = useState<Set<string>>(new Set());
   const [formValues, setFormValues] = useState<Record<string, FormState>>({});
   const [saving, setSaving] = useState<Set<string>>(new Set());
-  const [saveResult, setSaveResult] = useState<Record<string, { ok: boolean; msg: string }>>({});
-  const [reprocessResult, setReprocessResult] = useState<Record<string, { loading: boolean; runUrl?: string; error?: string }>>({});
+  const [saveResult, setSaveResult] = useState<
+    Record<string, { ok: boolean; msg: string }>
+  >({});
+  const [reprocessResult, setReprocessResult] = useState<
+    Record<string, { loading: boolean; runUrl?: string; error?: string }>
+  >({});
   const [pageLoading, setPageLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -363,7 +483,9 @@ export function Clasificacion() {
       supabase.auth.getSession(),
       supabase
         .from("scraped_benefits_raw")
-        .select("id, issuer_slug, source_url, raw_payload, scraped_at, benefit_id")
+        .select(
+          "id, issuer_slug, source_url, raw_payload, scraped_at, benefit_id",
+        )
         .eq("processing_status", "needs_review")
         .order("scraped_at", { ascending: false }),
     ]).then(([{ data: sessionData }, { data: rowData, error }]) => {
@@ -396,7 +518,9 @@ export function Clasificacion() {
       row.benefit_id
         ? supabase
             .from("benefits")
-            .select("channel, ai_description, value_type, value, categories(slug)")
+            .select(
+              "channel, ai_description, value_type, value, categories(slug)",
+            )
             .eq("id", row.benefit_id)
             .maybeSingle()
         : Promise.resolve({ data: null }),
@@ -408,7 +532,8 @@ export function Clasificacion() {
 
     const b = benefitRes.data as Record<string, unknown> | null;
     const aiValues: AiValues = {
-      category_slug: (b?.categories as { slug?: string } | null)?.slug ?? undefined,
+      category_slug:
+        (b?.categories as { slug?: string } | null)?.slug ?? undefined,
       channel: (b?.channel as string | null) ?? undefined,
       ai_description: (b?.ai_description as string | null) ?? undefined,
       value_type: (b?.value_type as string | null) ?? undefined,
@@ -416,21 +541,40 @@ export function Clasificacion() {
     };
 
     const existing =
-      (correctionRes.data?.corrected_fields as Record<string, unknown> | null) ?? null;
+      (correctionRes.data?.corrected_fields as Record<
+        string,
+        unknown
+      > | null) ?? null;
     const existingNote = (correctionRes.data?.note as string | null) ?? null;
 
     setCardData((prev) => ({
       ...prev,
-      [row.id]: { blockers, aiValues, existingCorrection: existing, existingNote },
+      [row.id]: {
+        blockers,
+        aiValues,
+        existingCorrection: existing,
+        existingNote,
+      },
     }));
 
-    const rd = deserializeRedemptionDetails(existing?.redemption_details as Record<string, unknown> | null | undefined);
-    const br = deserializeBenefitRules(existing?.benefit_rules as Record<string, unknown> | null | undefined);
+    const rd = deserializeRedemptionDetails(
+      existing?.redemption_details as
+        | Record<string, unknown>
+        | null
+        | undefined,
+    );
+    const br = deserializeBenefitRules(
+      existing?.benefit_rules as Record<string, unknown> | null | undefined,
+    );
 
     const initial: FormState = {
-      category_slug: String(existing?.category_slug ?? aiValues.category_slug ?? ""),
+      category_slug: String(
+        existing?.category_slug ?? aiValues.category_slug ?? "",
+      ),
       channel: String(existing?.channel ?? aiValues.channel ?? ""),
-      ai_description: String(existing?.ai_description ?? aiValues.ai_description ?? ""),
+      ai_description: String(
+        existing?.ai_description ?? aiValues.ai_description ?? "",
+      ),
       resolve_needs_review: existing?.needs_review === false,
       value_type: String(existing?.value_type ?? aiValues.value_type ?? ""),
       value: String(existing?.value ?? aiValues.value ?? ""),
@@ -473,7 +617,11 @@ export function Clasificacion() {
     });
   };
 
-  const setField = <K extends keyof FormState>(rawId: string, field: K, val: FormState[K]) => {
+  const setField = <K extends keyof FormState>(
+    rawId: string,
+    field: K,
+    val: FormState[K],
+  ) => {
     setFormValues((prev) => ({
       ...prev,
       [rawId]: { ...prev[rawId], [field]: val },
@@ -487,13 +635,18 @@ export function Clasificacion() {
     const cf: Record<string, unknown> = {};
     if (vals.category_slug) cf.category_slug = vals.category_slug;
     if (vals.channel) cf.channel = vals.channel;
-    if (vals.ai_description.trim()) cf.ai_description = vals.ai_description.trim();
+    if (vals.ai_description.trim())
+      cf.ai_description = vals.ai_description.trim();
     if (vals.resolve_needs_review) cf.needs_review = false;
     if (vals.value_type) cf.value_type = vals.value_type;
     if (vals.value.trim()) cf.value = Number(vals.value);
     if (vals.redemption_method) cf.redemption_method = vals.redemption_method;
 
-    const rd = serializeRedemptionDetails(vals.redemption_method, vals.rd_code, vals.rd_url);
+    const rd = serializeRedemptionDetails(
+      vals.redemption_method,
+      vals.rd_code,
+      vals.rd_url,
+    );
     if (rd) cf.redemption_details = rd;
 
     const br = serializeBenefitRules(vals);
@@ -516,7 +669,10 @@ export function Clasificacion() {
     });
 
     if (error) {
-      setSaveResult((prev) => ({ ...prev, [rawId]: { ok: false, msg: error.message } }));
+      setSaveResult((prev) => ({
+        ...prev,
+        [rawId]: { ok: false, msg: error.message },
+      }));
       return;
     }
 
@@ -533,31 +689,46 @@ export function Clasificacion() {
 
     if (fixableInThisCard.length > 0 && stillUnresolved.length === 0) {
       // All fixable blockers covered — auto-trigger reprocess
-      setSaveResult((prev) => ({ ...prev, [rawId]: { ok: true, msg: "Corrección guardada. Disparando reproceso automático…" } }));
+      setSaveResult((prev) => ({
+        ...prev,
+        [rawId]: {
+          ok: true,
+          msg: "Corrección guardada. Disparando reproceso automático…",
+        },
+      }));
       setReprocessResult((prev) => ({ ...prev, [rawId]: { loading: true } }));
 
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
       if (token) {
-        const { data: runData, error: runError } = await supabase.functions.invoke("run-reprocess", {
-          body: { rawBenefitId: rawId, force: true },
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const { data: runData, error: runError } =
+          await supabase.functions.invoke("run-reprocess", {
+            body: { rawBenefitId: rawId, force: true },
+            headers: { Authorization: `Bearer ${token}` },
+          });
         setReprocessResult((prev) => ({
           ...prev,
           [rawId]: {
             loading: false,
-            runUrl: (runData as Record<string, unknown> | null)?.runUrl as string | undefined,
+            runUrl: (runData as Record<string, unknown> | null)?.runUrl as
+              | string
+              | undefined,
             error: runError?.message,
           },
         }));
       } else {
-        setReprocessResult((prev) => ({ ...prev, [rawId]: { loading: false, error: "No autenticado." } }));
+        setReprocessResult((prev) => ({
+          ...prev,
+          [rawId]: { loading: false, error: "No autenticado." },
+        }));
       }
     } else {
       setSaveResult((prev) => ({
         ...prev,
-        [rawId]: { ok: true, msg: "Corrección guardada. Cuando cubras todos los campos requeridos, el reproceso se disparará automáticamente." },
+        [rawId]: {
+          ok: true,
+          msg: "Corrección guardada. Cuando cubras todos los campos requeridos, el reproceso se disparará automáticamente.",
+        },
       }));
     }
   };
@@ -580,9 +751,14 @@ export function Clasificacion() {
       {/* Flow explanation */}
       <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
         <p>
-          <strong>Cómo funciona:</strong> Guardar una corrección la almacena en la base de datos. Para que el beneficio se publique, ve a{" "}
-          <strong>Pipeline → Reprocesar</strong> después de guardar. Los campos con{" "}
-          <span className="font-bold text-amber-600">●</span> son bloqueadores — el beneficio no se publica si faltan.
+          <strong>Cómo funciona:</strong> esta pantalla guarda correcciones
+          manuales sobre el raw scrapeado. Si al guardar quedan cubiertos todos
+          los bloqueadores corregibles, se dispara el reproceso automático para
+          que el pipeline intente publicarlo. Los campos con{" "}
+          <span className="font-bold text-red-600">*</span> son obligatorios
+          para publicar; los campos con{" "}
+          <span className="font-bold text-amber-600">●</span> están bloqueando
+          este raw ahora.
         </p>
       </div>
 
@@ -601,8 +777,12 @@ export function Clasificacion() {
       <div className="flex flex-col gap-3">
         {rows.map((row) => {
           const payload = row.raw_payload ?? {};
-          const title = String(payload.title ?? payload.name ?? row.source_url ?? row.id);
-          const description = String(payload.description_raw ?? payload.description ?? "");
+          const title = String(
+            payload.title ?? payload.name ?? row.source_url ?? row.id,
+          );
+          const description = String(
+            payload.description_raw ?? payload.description ?? "",
+          );
           const isExpanded = expanded.has(row.id);
           const isRawVisible = showRaw.has(row.id);
           const data = cardData[row.id];
@@ -610,9 +790,12 @@ export function Clasificacion() {
           const vals = formValues[row.id];
           const isSaving = saving.has(row.id);
           const result = saveResult[row.id];
+          const correctedFields = data?.existingCorrection ?? null;
 
           const blockerFields = new Set(
-            (data?.blockers ?? []).map((b) => BLOCKER_FIELD_MAP[b]).filter(Boolean),
+            (data?.blockers ?? [])
+              .map((b) => BLOCKER_FIELD_MAP[b])
+              .filter(Boolean),
           );
 
           const unresolvedBlockers = (data?.blockers ?? []).filter((b) => {
@@ -621,21 +804,63 @@ export function Clasificacion() {
             if (field === "category_slug") return !vals.category_slug;
             if (field === "channel") return !vals.channel;
             if (field === "ai_description") return !vals.ai_description.trim();
-            if (field === "resolve_needs_review") return !vals.resolve_needs_review;
+            if (field === "resolve_needs_review")
+              return !vals.resolve_needs_review;
             return true;
           });
 
+          const requiredStatus = REQUIRED_PUBLICATION_FIELDS.map((item) => {
+            const isBlocking = data?.blockers.includes(item.blocker) ?? false;
+            const field = item.field;
+            const resolved = !isBlocking
+              ? true
+              : field && vals
+                ? field === "category_slug"
+                  ? !!vals.category_slug
+                  : field === "channel"
+                    ? !!vals.channel
+                    : field === "ai_description"
+                      ? !!vals.ai_description.trim()
+                      : field === "resolve_needs_review"
+                        ? vals.resolve_needs_review
+                        : false
+                : false;
+            return { ...item, isBlocking, resolved };
+          });
+
+          const sourceFor = (
+            field: keyof FormState,
+            aiValue?: string,
+            rawValue?: unknown,
+          ) =>
+            vals
+              ? getCurrentValueSource({
+                  aiValue,
+                  correctedFields,
+                  currentValue: vals[field] as string | boolean,
+                  field,
+                  rawValue,
+                })
+              : undefined;
+
           return (
-            <div className="rounded-xl border border-amber-200 bg-white" key={row.id}>
+            <div
+              className="rounded-xl border border-amber-200 bg-white"
+              key={row.id}
+            >
               {/* Card header */}
               <div className="flex items-start justify-between gap-4 px-4 py-3">
                 <div className="flex min-w-0 flex-col gap-1">
                   <p className="font-medium text-gray-900">{title}</p>
                   <div className="flex flex-wrap gap-3 text-xs text-gray-400">
                     {row.issuer_slug && (
-                      <span className="font-medium text-gray-600">{row.issuer_slug}</span>
+                      <span className="font-medium text-gray-600">
+                        {row.issuer_slug}
+                      </span>
                     )}
-                    {row.scraped_at && <span>{row.scraped_at.substring(0, 10)}</span>}
+                    {row.scraped_at && (
+                      <span>{row.scraped_at.substring(0, 10)}</span>
+                    )}
                     {row.source_url && (
                       <a
                         className="max-w-xs truncate text-teal-600 hover:underline"
@@ -652,12 +877,16 @@ export function Clasificacion() {
                     <div className="mt-1 flex flex-wrap gap-1.5">
                       {data.blockers.map((b) => {
                         const field = BLOCKER_FIELD_MAP[b];
-                        const resolved = field && vals
-                          ? (field === "category_slug" && !!vals.category_slug) ||
-                            (field === "channel" && !!vals.channel) ||
-                            (field === "ai_description" && !!vals.ai_description.trim()) ||
-                            (field === "resolve_needs_review" && vals.resolve_needs_review)
-                          : false;
+                        const resolved =
+                          field && vals
+                            ? (field === "category_slug" &&
+                                !!vals.category_slug) ||
+                              (field === "channel" && !!vals.channel) ||
+                              (field === "ai_description" &&
+                                !!vals.ai_description.trim()) ||
+                              (field === "resolve_needs_review" &&
+                                vals.resolve_needs_review)
+                            : false;
                         return (
                           <span
                             className={`rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -688,10 +917,11 @@ export function Clasificacion() {
               {isExpanded && (
                 <div className="border-t border-amber-100">
                   {isLoadingCard ? (
-                    <p className="px-4 py-4 text-sm text-gray-400">Cargando datos...</p>
+                    <p className="px-4 py-4 text-sm text-gray-400">
+                      Cargando datos...
+                    </p>
                   ) : (
                     <div className="flex flex-col gap-6 px-4 py-4">
-
                       {/* Original data */}
                       <div className="flex flex-col gap-2">
                         <div className="flex items-center justify-between">
@@ -703,24 +933,46 @@ export function Clasificacion() {
                             onClick={() => toggleRaw(row.id)}
                             type="button"
                           >
-                            {isRawVisible ? "Ocultar JSON" : "Ver JSON completo"}
+                            {isRawVisible
+                              ? "Ocultar JSON"
+                              : "Ver JSON completo"}
                           </button>
                         </div>
 
                         <div className="rounded-lg bg-gray-50 p-3 text-sm">
                           {description && (
                             <div className="mb-3">
-                              <p className="mb-1 text-xs font-medium text-gray-500">Descripción</p>
-                              <p className="whitespace-pre-wrap text-gray-700">{description}</p>
+                              <p className="mb-1 text-xs font-medium text-gray-500">
+                                Descripción
+                              </p>
+                              <p className="whitespace-pre-wrap text-gray-700">
+                                {description}
+                              </p>
                             </div>
                           )}
                           <div className="grid grid-cols-1 gap-x-6 gap-y-1.5 md:grid-cols-2">
-                            {(["merchant_name", "category", "channel", "value_type", "value"] as const)
-                              .filter((k) => payload[k] != null && String(payload[k]).trim() !== "")
+                            {(
+                              [
+                                "merchant_name",
+                                "category",
+                                "channel",
+                                "value_type",
+                                "value",
+                              ] as const
+                            )
+                              .filter(
+                                (k) =>
+                                  payload[k] != null &&
+                                  String(payload[k]).trim() !== "",
+                              )
                               .map((k) => (
                                 <div className="flex gap-1.5" key={k}>
-                                  <span className="shrink-0 font-medium text-gray-500">{k}:</span>
-                                  <span className="text-gray-700">{String(payload[k])}</span>
+                                  <span className="shrink-0 font-medium text-gray-500">
+                                    {k}:
+                                  </span>
+                                  <span className="text-gray-700">
+                                    {String(payload[k])}
+                                  </span>
                                 </div>
                               ))}
                           </div>
@@ -736,12 +988,39 @@ export function Clasificacion() {
                       {/* Correction form */}
                       {vals && (
                         <div className="flex flex-col gap-6">
-
                           {/* Blockers callout */}
+                          <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              Estado para publicar
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {requiredStatus.map((item) => (
+                                <span
+                                  className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                                    item.resolved
+                                      ? "bg-emerald-100 text-emerald-700"
+                                      : "bg-amber-100 text-amber-800"
+                                  }`}
+                                  key={item.blocker}
+                                >
+                                  {item.resolved ? "OK" : "Falta"} ·{" "}
+                                  {item.label}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+
                           {unresolvedBlockers.length > 0 && (
                             <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                              <strong>Faltan {unresolvedBlockers.length} campo{unresolvedBlockers.length > 1 ? "s" : ""} para publicar:</strong>{" "}
-                              {unresolvedBlockers.map((b) => BLOCKER_LABELS[b] ?? b).join(", ")}.
+                              <strong>
+                                Faltan {unresolvedBlockers.length} campo
+                                {unresolvedBlockers.length > 1 ? "s" : ""} para
+                                publicar:
+                              </strong>{" "}
+                              {unresolvedBlockers
+                                .map((b) => BLOCKER_LABELS[b] ?? b)
+                                .join(", ")}
+                              .
                             </div>
                           )}
 
@@ -753,13 +1032,28 @@ export function Clasificacion() {
 
                             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                               <Field
-                                aiHint={data?.aiValues.category_slug}
                                 isBlocker={blockerFields.has("category_slug")}
                                 label="Categoría"
+                                required
+                                source={sourceFor(
+                                  "category_slug",
+                                  data?.aiValues.category_slug,
+                                  payload.category,
+                                )}
                               >
                                 <select
-                                  className={blockerFields.has("category_slug") ? blockerSelectCls : selectCls}
-                                  onChange={(e) => setField(row.id, "category_slug", e.target.value)}
+                                  className={
+                                    blockerFields.has("category_slug")
+                                      ? blockerSelectCls
+                                      : selectCls
+                                  }
+                                  onChange={(e) =>
+                                    setField(
+                                      row.id,
+                                      "category_slug",
+                                      e.target.value,
+                                    )
+                                  }
                                   value={vals.category_slug}
                                 >
                                   {CATEGORY_SLUG_OPTIONS.map((o) => (
@@ -771,13 +1065,24 @@ export function Clasificacion() {
                               </Field>
 
                               <Field
-                                aiHint={data?.aiValues.channel}
                                 isBlocker={blockerFields.has("channel")}
                                 label="Canal"
+                                required
+                                source={sourceFor(
+                                  "channel",
+                                  data?.aiValues.channel,
+                                  payload.channel,
+                                )}
                               >
                                 <select
-                                  className={blockerFields.has("channel") ? blockerSelectCls : selectCls}
-                                  onChange={(e) => setField(row.id, "channel", e.target.value)}
+                                  className={
+                                    blockerFields.has("channel")
+                                      ? blockerSelectCls
+                                      : selectCls
+                                  }
+                                  onChange={(e) =>
+                                    setField(row.id, "channel", e.target.value)
+                                  }
                                   value={vals.channel}
                                 >
                                   {CHANNEL_OPTIONS.map((o) => (
@@ -790,19 +1095,25 @@ export function Clasificacion() {
                             </div>
 
                             <Field
-                              aiHint={
-                                data?.aiValues.ai_description
-                                  ? `"${data.aiValues.ai_description.substring(0, 80)}${data.aiValues.ai_description.length > 80 ? "…" : ""}"`
-                                  : undefined
-                              }
                               isBlocker={blockerFields.has("ai_description")}
                               label="Descripción IA"
                               hint="máx. 150 caracteres"
+                              required
+                              source={sourceFor(
+                                "ai_description",
+                                data?.aiValues.ai_description,
+                              )}
                             >
                               <textarea
                                 className={`${blockerFields.has("ai_description") ? blockerInputCls : inputCls} min-h-16 resize-y`}
                                 maxLength={150}
-                                onChange={(e) => setField(row.id, "ai_description", e.target.value)}
+                                onChange={(e) =>
+                                  setField(
+                                    row.id,
+                                    "ai_description",
+                                    e.target.value,
+                                  )
+                                }
                                 placeholder="Descripción corta visible para el usuario"
                                 value={vals.ai_description}
                               />
@@ -811,19 +1122,41 @@ export function Clasificacion() {
                               </p>
                             </Field>
 
-                            {(blockerFields.has("resolve_needs_review") || data?.blockers.includes("needs_manual_review")) && (
+                            {(blockerFields.has("resolve_needs_review") ||
+                              data?.blockers.includes(
+                                "needs_manual_review",
+                              )) && (
                               <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
                                 <input
                                   checked={vals.resolve_needs_review}
                                   className="mt-0.5 h-4 w-4 accent-teal-600"
                                   id={`resolve-${row.id}`}
-                                  onChange={(e) => setField(row.id, "resolve_needs_review", e.target.checked)}
+                                  onChange={(e) =>
+                                    setField(
+                                      row.id,
+                                      "resolve_needs_review",
+                                      e.target.checked,
+                                    )
+                                  }
                                   type="checkbox"
                                 />
-                                <label className="cursor-pointer text-sm text-gray-700" htmlFor={`resolve-${row.id}`}>
-                                  <span className="font-medium">Resolver revisión manual ●</span>
+                                <label
+                                  className="cursor-pointer text-sm text-gray-700"
+                                  htmlFor={`resolve-${row.id}`}
+                                >
+                                  <span className="font-medium">
+                                    Resolver revisión manual * ●
+                                  </span>
                                   <span className="ml-1 text-gray-500">
-                                    — marcar cuando la ambigüedad de reglas o datos esté resuelta
+                                    — marcar cuando la ambigüedad de reglas o
+                                    datos esté resuelta
+                                  </span>
+                                  <span
+                                    className={`ml-2 rounded px-1.5 py-0.5 text-xs ${getSourceBadgeClass(sourceFor("resolve_needs_review") ?? "Pendiente")}`}
+                                  >
+                                    Origen:{" "}
+                                    {sourceFor("resolve_needs_review") ??
+                                      "Pendiente"}
                                   </span>
                                 </label>
                               </div>
@@ -837,10 +1170,23 @@ export function Clasificacion() {
                             </p>
 
                             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                              <Field aiHint={data?.aiValues.value_type} label="Tipo de valor">
+                              <Field
+                                label="Tipo de valor"
+                                source={sourceFor(
+                                  "value_type",
+                                  data?.aiValues.value_type,
+                                  payload.value_type,
+                                )}
+                              >
                                 <select
                                   className={selectCls}
-                                  onChange={(e) => setField(row.id, "value_type", e.target.value)}
+                                  onChange={(e) =>
+                                    setField(
+                                      row.id,
+                                      "value_type",
+                                      e.target.value,
+                                    )
+                                  }
                                   value={vals.value_type}
                                 >
                                   {VALUE_TYPE_OPTIONS.map((o) => (
@@ -851,10 +1197,20 @@ export function Clasificacion() {
                                 </select>
                               </Field>
 
-                              <Field aiHint={data?.aiValues.value} label="Valor" hint="ej: 15 para 15%">
+                              <Field
+                                label="Valor"
+                                hint="ej: 15 para 15%"
+                                source={sourceFor(
+                                  "value",
+                                  data?.aiValues.value,
+                                  payload.value,
+                                )}
+                              >
                                 <input
                                   className={inputCls}
-                                  onChange={(e) => setField(row.id, "value", e.target.value)}
+                                  onChange={(e) =>
+                                    setField(row.id, "value", e.target.value)
+                                  }
                                   placeholder="ej: 15"
                                   step="any"
                                   type="number"
@@ -865,7 +1221,13 @@ export function Clasificacion() {
                               <Field label="Método de canje">
                                 <select
                                   className={selectCls}
-                                  onChange={(e) => setField(row.id, "redemption_method", e.target.value)}
+                                  onChange={(e) =>
+                                    setField(
+                                      row.id,
+                                      "redemption_method",
+                                      e.target.value,
+                                    )
+                                  }
                                   value={vals.redemption_method}
                                 >
                                   {REDEMPTION_METHOD_OPTIONS.map((o) => (
@@ -890,7 +1252,9 @@ export function Clasificacion() {
                                 Reglas del beneficio
                               </p>
                               <BenefitRulesFields
-                                onChange={(field, val) => setField(row.id, field, val)}
+                                onChange={(field, val) =>
+                                  setField(row.id, field, val)
+                                }
                                 vals={vals}
                               />
                             </div>
@@ -898,7 +1262,9 @@ export function Clasificacion() {
                             <Field label="Nota interna" hint="opcional">
                               <textarea
                                 className={`${inputCls} min-h-12 resize-y`}
-                                onChange={(e) => setField(row.id, "note", e.target.value)}
+                                onChange={(e) =>
+                                  setField(row.id, "note", e.target.value)
+                                }
                                 placeholder="Explicación de la corrección o contexto extra…"
                                 value={vals.note}
                               />
@@ -908,7 +1274,9 @@ export function Clasificacion() {
                           {result ? (
                             <p
                               className={`rounded-lg px-3 py-2 text-sm ${
-                                result.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"
+                                result.ok
+                                  ? "bg-emerald-50 text-emerald-700"
+                                  : "bg-red-50 text-red-600"
                               }`}
                             >
                               {result.msg}
@@ -920,7 +1288,10 @@ export function Clasificacion() {
                               {reprocessResult[row.id].loading ? (
                                 "Disparando reproceso…"
                               ) : reprocessResult[row.id].error ? (
-                                <span className="text-red-600">Error al disparar reproceso: {reprocessResult[row.id].error}</span>
+                                <span className="text-red-600">
+                                  Error al disparar reproceso:{" "}
+                                  {reprocessResult[row.id].error}
+                                </span>
                               ) : reprocessResult[row.id].runUrl ? (
                                 <>
                                   Reproceso disparado.{" "}

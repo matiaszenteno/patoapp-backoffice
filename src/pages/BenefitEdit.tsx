@@ -419,30 +419,6 @@ export function BenefitEdit() {
             <div className="flex flex-col gap-1">
               <button
                 className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-                disabled={opLoading["reprocess"]}
-                onClick={() => runOp("reprocess", "run-reprocess", { benefitId: id, force: true })}
-                title="Corre el pipeline de ingestion para este beneficio específico vía GitHub Actions"
-                type="button"
-              >
-                {opLoading["reprocess"] ? "Disparando..." : "Re-publicar beneficio"}
-              </button>
-              {opResults["reprocess"]?.error && (
-                <p className="text-xs text-red-600">{opResults["reprocess"].error}</p>
-              )}
-              {opResults["reprocess"]?.ok && (
-                opResults["reprocess"].ok.runUrl ? (
-                  <a className="text-xs text-teal-600 underline" href={opResults["reprocess"].ok.runUrl as string} rel="noreferrer" target="_blank">
-                    Ver en GitHub Actions →
-                  </a>
-                ) : (
-                  <p className="text-xs text-emerald-700">OK: {JSON.stringify(opResults["reprocess"].ok)}</p>
-                )
-              )}
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <button
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
                 disabled={opLoading["ai_desc"]}
                 onClick={() => runOp("ai_desc", "run-refresh-ai-descriptions", { benefitIds: [id], force: true })}
                 title="Regenera la descripción corta de IA para este beneficio usando GPT-4o mini"

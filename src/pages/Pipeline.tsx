@@ -1,7 +1,8 @@
 import { useState } from "react";
+import { getLocationPipelineHeaders } from "../lib/pipelineSecret";
 import { supabase } from "../lib/supabase";
 
-type Tab = "reprocess" | "ai_descriptions";
+type Tab = "reprocess" | "ai_descriptions" | "locations";
 
 const ISSUERS = ["", "bancochile", "entel", "falabella", "itau", "santander", "tenpo", "wom"] as const;
 
@@ -244,11 +245,139 @@ function AiDescriptionsTab() {
   );
 }
 
+// ---------- Actualizar ubicaciones ----------
+
+function LocationsTab() {
+  const [limit, setLimit] = useState("25");
+  const [concurrency, setConcurrency] = useState("3");
+  const [force, setForce] = useState(false);
+  const [dryRun, setDryRun] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setLoading(true);
+    setResult(null);
+    setError(null);
+    const token = await getToken();
+    if (!token) { setError("No autenticado."); setLoading(false); return; }
+
+    let headers: Record<string, string>;
+    try {
+      headers = getLocationPipelineHeaders(token);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo configurar el pipeline.");
+      setLoading(false);
+      return;
+    }
+
+    const body = {
+      concurrency: Number(concurrency),
+      dryRun,
+      force,
+      limit: Number(limit),
+    };
+
+    const { data, error: fnError } = await supabase.functions.invoke("refresh-merchant-locations", {
+      body,
+      headers,
+    });
+
+    setLoading(false);
+    if (fnError) { setError(fnError.message); return; }
+    setResult(data as Record<string, unknown>);
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <p className="text-sm text-gray-500">
+        Resuelve direcciones scrapeadas de merchants y crea/actualiza registros en merchant_locations.
+        Por defecto procesa solo merchants pendientes o vencidos por TTL; con forzar vuelve a revisar todos los candidatos seleccionados.
+      </p>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="flex flex-col gap-1">
+          <label className="text-sm font-medium text-gray-700">Máximo de merchants</label>
+          <input
+            className={inputCls}
+            max={100}
+            min={1}
+            onChange={(e) => setLimit(e.target.value)}
+            type="number"
+            value={limit}
+          />
+          <p className="text-xs text-gray-400">La función limita internamente a 100.</p>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-sm font-medium text-gray-700">Concurrencia</label>
+          <input
+            className={inputCls}
+            max={5}
+            min={1}
+            onChange={(e) => setConcurrency(e.target.value)}
+            type="number"
+            value={concurrency}
+          />
+          <p className="text-xs text-gray-400">La función limita internamente a 5.</p>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 bg-white p-3 hover:bg-gray-50">
+          <input
+            checked={dryRun}
+            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-teal-600"
+            onChange={(e) => setDryRun(e.target.checked)}
+            type="checkbox"
+          />
+          <div>
+            <p className="text-sm font-medium text-gray-800">Solo previsualizar candidatos</p>
+            <p className="text-xs text-gray-500">No geocodifica ni escribe ubicaciones; muestra qué merchants serían procesados.</p>
+          </div>
+        </label>
+
+        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 bg-white p-3 hover:bg-gray-50">
+          <input
+            checked={force}
+            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-teal-600"
+            onChange={(e) => setForce(e.target.checked)}
+            type="checkbox"
+          />
+          <div>
+            <p className="text-sm font-medium text-gray-800">Forzar actualización</p>
+            <p className="text-xs text-gray-500">Ignora el TTL de 30 días y vuelve a resolver las direcciones scrapeadas.</p>
+          </div>
+        </label>
+      </div>
+
+      <div>
+        <button
+          className="rounded-lg bg-teal-700 px-5 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+          disabled={loading}
+          onClick={run}
+          type="button"
+        >
+          {loading ? "Procesando..." : dryRun ? "Previsualizar" : "Actualizar ubicaciones"}
+        </button>
+        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        {result && (
+          <pre className="mt-3 max-h-96 overflow-auto rounded-lg bg-gray-50 p-3 text-xs text-gray-700">
+            {JSON.stringify(result, null, 2)}
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ---------- Main page ----------
 
 const TABS: { id: Tab; label: string; description: string }[] = [
   { id: "reprocess", label: "Publicar pendientes", description: "Procesa beneficios scraped y los publica en la app" },
   { id: "ai_descriptions", label: "Regenerar descripciones", description: "Genera o actualiza descripciones cortas con IA" },
+  { id: "locations", label: "Ubicaciones", description: "Resuelve ubicaciones scrapeadas de merchants" },
 ];
 
 export function Pipeline() {
@@ -283,6 +412,7 @@ export function Pipeline() {
         <div className="p-6">
           {activeTab === "reprocess" && <ReprocessTab />}
           {activeTab === "ai_descriptions" && <AiDescriptionsTab />}
+          {activeTab === "locations" && <LocationsTab />}
         </div>
       </div>
     </div>
