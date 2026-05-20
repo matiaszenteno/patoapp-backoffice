@@ -84,6 +84,8 @@ export function BenefitEdit() {
   const [deleting, setDeleting] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [opLoading, setOpLoading] = useState<Record<string, boolean>>({});
+  const [opResults, setOpResults] = useState<Record<string, { ok?: Record<string, unknown>; error?: string }>>({});
 
   const {
     formState: { errors },
@@ -218,6 +220,27 @@ export function BenefitEdit() {
       }
     }
   });
+
+  async function runOp(key: string, fn: string, body: Record<string, unknown>) {
+    setOpLoading((s) => ({ ...s, [key]: true }));
+    setOpResults((s) => ({ ...s, [key]: {} }));
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) {
+      setOpLoading((s) => ({ ...s, [key]: false }));
+      setOpResults((s) => ({ ...s, [key]: { error: "No autenticado." } }));
+      return;
+    }
+    const { data, error } = await supabase.functions.invoke(fn, {
+      body,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    setOpLoading((s) => ({ ...s, [key]: false }));
+    setOpResults((s) => ({
+      ...s,
+      [key]: error ? { error: error.message } : { ok: data as Record<string, unknown> },
+    }));
+  }
 
   const handleDelete = async () => {
     if (!id) return;
@@ -389,6 +412,57 @@ export function BenefitEdit() {
           )}
         </div>
       </form>
+
+      {!isNew && (
+        <div className="flex flex-col gap-4 rounded-xl border border-gray-200 bg-white p-6">
+          <h2 className="text-base font-semibold text-gray-900">Operaciones</h2>
+          <div className="flex flex-wrap gap-3">
+            <div className="flex flex-col gap-1">
+              <button
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                disabled={opLoading["reprocess"]}
+                onClick={() => runOp("reprocess", "run-reprocess", { benefitId: id, force: true })}
+                title="Corre el pipeline de ingestion para este beneficio específico vía GitHub Actions"
+                type="button"
+              >
+                {opLoading["reprocess"] ? "Disparando..." : "Reprocesar este beneficio"}
+              </button>
+              {opResults["reprocess"]?.error && (
+                <p className="text-xs text-red-600">{opResults["reprocess"].error}</p>
+              )}
+              {opResults["reprocess"]?.ok && (
+                opResults["reprocess"].ok.runUrl ? (
+                  <a className="text-xs text-teal-600 underline" href={opResults["reprocess"].ok.runUrl as string} rel="noreferrer" target="_blank">
+                    Ver en GitHub Actions →
+                  </a>
+                ) : (
+                  <p className="text-xs text-emerald-700">OK: {JSON.stringify(opResults["reprocess"].ok)}</p>
+                )
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <button
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                disabled={opLoading["ai_desc"]}
+                onClick={() => runOp("ai_desc", "run-refresh-ai-descriptions", { benefitIds: [id], force: true })}
+                title="Regenera la descripción corta de IA para este beneficio usando GPT-4o mini"
+                type="button"
+              >
+                {opLoading["ai_desc"] ? "Generando..." : "Refresh descripción IA"}
+              </button>
+              {opResults["ai_desc"]?.error && (
+                <p className="text-xs text-red-600">{opResults["ai_desc"].error}</p>
+              )}
+              {opResults["ai_desc"]?.ok && (
+                <p className="text-xs text-emerald-700">
+                  {JSON.stringify(opResults["ai_desc"].ok)}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

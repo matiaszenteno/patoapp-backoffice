@@ -52,6 +52,42 @@ export function Layout() {
               </NavLink>
               <NavLink
                 className={({ isActive }) =>
+                  `rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    isActive
+                      ? "bg-teal-50 text-teal-700"
+                      : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                  }`
+                }
+                to="/clasificacion"
+              >
+                Clasificación
+              </NavLink>
+              <NavLink
+                className={({ isActive }) =>
+                  `rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    isActive
+                      ? "bg-teal-50 text-teal-700"
+                      : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                  }`
+                }
+                to="/scrapers"
+              >
+                Scrapers
+              </NavLink>
+              <NavLink
+                className={({ isActive }) =>
+                  `rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    isActive
+                      ? "bg-teal-50 text-teal-700"
+                      : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                  }`
+                }
+                to="/pipeline"
+              >
+                Pipeline
+              </NavLink>
+              <NavLink
+                className={({ isActive }) =>
                   `flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                     isActive
                       ? "bg-teal-50 text-teal-700"
