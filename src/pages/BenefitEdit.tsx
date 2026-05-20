@@ -38,10 +38,10 @@ const schema = z.object({
   merchant_id: z.string().optional(),
   image_url: z.string().optional(),
   issuer_id: z.string().min(1, "Requerido"),
-  category_id: z.string().optional(),
+  category_id: z.string().min(1, "Requerido para publicar"),
   value_type: z.string().optional(),
   value: z.string().optional(),
-  channel: z.string().optional(),
+  channel: z.string().min(1, "Requerido para publicar"),
   status: z.string().min(1),
   starts_at: z.string().optional(),
   ends_at: z.string().optional(),
@@ -325,7 +325,7 @@ export function BenefitEdit() {
             </select>
           </Field>
 
-          <Field label="Categoría">
+          <Field error={errors.category_id?.message} label="Categoría *">
             <select className={selectCls} {...register("category_id")}>
               {categories.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -355,7 +355,7 @@ export function BenefitEdit() {
             />
           </Field>
 
-          <Field label="Canal">
+          <Field error={errors.channel?.message} label="Canal *">
             <select className={selectCls} {...register("channel")}>
               {CHANNEL_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>

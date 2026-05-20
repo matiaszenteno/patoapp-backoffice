@@ -39,11 +39,11 @@ export function Review() {
     load();
   }, [load]);
 
-  const markAs = async (id: string, status: "published" | "failed") => {
+  const discard = async (id: string) => {
     setUpdating(id);
     const { error: updateError } = await supabase
       .from("scraped_benefits_raw")
-      .update({ processing_status: status })
+      .update({ processing_status: "failed" })
       .eq("id", id);
     setUpdating(null);
     if (updateError) {
@@ -131,17 +131,9 @@ export function Review() {
                     </button>
                   ) : null}
                   <button
-                    className="rounded-lg border border-teal-200 px-3 py-1.5 text-xs font-medium text-teal-700 hover:bg-teal-50 disabled:opacity-60"
-                    disabled={isBusy}
-                    onClick={() => markAs(row.id, "published")}
-                    type="button"
-                  >
-                    Publicar
-                  </button>
-                  <button
                     className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
                     disabled={isBusy}
-                    onClick={() => markAs(row.id, "failed")}
+                    onClick={() => discard(row.id)}
                     type="button"
                   >
                     Descartar

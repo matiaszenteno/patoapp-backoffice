@@ -75,7 +75,22 @@ function LocationEditor({
   const lat = parseFloat(draft.latitude) || DEFAULT_LAT;
   const lng = parseFloat(draft.longitude) || DEFAULT_LNG;
 
+  const validateCoords = (): string | null => {
+    const latVal = parseFloat(draft.latitude);
+    const lngVal = parseFloat(draft.longitude);
+    if (draft.latitude.trim() === "" || isNaN(latVal)) return "Latitud requerida";
+    if (latVal < -90 || latVal > 90) return "Latitud debe estar entre -90 y 90";
+    if (draft.longitude.trim() === "" || isNaN(lngVal)) return "Longitud requerida";
+    if (lngVal < -180 || lngVal > 180) return "Longitud debe estar entre -180 y 180";
+    return null;
+  };
+
   const handleSave = async () => {
+    const coordError = validateCoords();
+    if (coordError) {
+      setError(coordError);
+      return;
+    }
     setSaving(true);
     setError(null);
     setSuccess(false);
