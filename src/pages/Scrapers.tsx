@@ -23,6 +23,13 @@ function formatDate(iso: string | null) {
   return new Date(iso).toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" });
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  success: "Exitoso",
+  failed: "Con error",
+  running: "En curso",
+  pending: "Pendiente",
+};
+
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     success: "bg-emerald-100 text-emerald-700",
@@ -32,7 +39,7 @@ function StatusBadge({ status }: { status: string }) {
   };
   return (
     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${styles[status] ?? "bg-gray-100 text-gray-600"}`}>
-      {status}
+      {STATUS_LABELS[status] ?? status}
     </span>
   );
 }
@@ -107,7 +114,7 @@ export function Scrapers() {
               onChange={(e) => setForce(e.target.checked)}
               type="checkbox"
             />
-            --force
+            Re-escanear aunque no haya cambios
           </label>
           <button
             className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
