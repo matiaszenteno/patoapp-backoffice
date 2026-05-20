@@ -6,6 +6,9 @@ import { BenefitsList } from "./pages/BenefitsList";
 import { BenefitEdit } from "./pages/BenefitEdit";
 import { Locations } from "./pages/Locations";
 import { Review } from "./pages/Review";
+import { Clasificacion } from "./pages/Clasificacion";
+import { Scrapers } from "./pages/Scrapers";
+import { Pipeline } from "./pages/Pipeline";
 
 export default function App() {
   return (
@@ -24,7 +27,10 @@ export default function App() {
           <Route path="/benefits/new" element={<BenefitEdit />} />
           <Route path="/benefits/:id" element={<BenefitEdit />} />
           <Route path="/locations" element={<Locations />} />
+          <Route path="/scrapers" element={<Scrapers />} />
+          <Route path="/pipeline" element={<Pipeline />} />
           <Route path="/review" element={<Review />} />
+          <Route path="/clasificacion" element={<Clasificacion />} />
         </Route>
       </Routes>
     </BrowserRouter>
