@@ -112,7 +112,7 @@ export function BenefitEdit() {
   });
 
   useEffect(() => {
-    const loadOptions = async () => {
+    const load = async () => {
       const [{ data: issuerData }, { data: catData }, { data: merchantData }] = await Promise.all([
         supabase.from("issuers").select("id, name").order("name"),
         supabase.from("categories").select("id, name").order("name"),
@@ -140,39 +140,38 @@ export function BenefitEdit() {
           label: m.name,
         })),
       ]);
+
+      if (!isNew && id) {
+        const { data } = await supabase
+          .from("benefits")
+          .select(
+            "id, title, description_raw, ai_description, merchant_id, image_url, issuer_id, category_id, value_type, value, channel, status, starts_at, ends_at",
+          )
+          .eq("id", id)
+          .maybeSingle();
+
+        if (data) {
+          reset({
+            title: data.title ?? "",
+            description_raw: data.description_raw ?? "",
+            ai_description: data.ai_description ?? "",
+            merchant_id: data.merchant_id ?? "",
+            image_url: data.image_url ?? "",
+            issuer_id: data.issuer_id ?? "",
+            category_id: data.category_id ?? "",
+            value_type: data.value_type ?? "",
+            value: data.value != null ? String(data.value) : "",
+            channel: data.channel ?? "",
+            status: data.status ?? "active",
+            starts_at: data.starts_at ? String(data.starts_at).substring(0, 10) : "",
+            ends_at: data.ends_at ? String(data.ends_at).substring(0, 10) : "",
+          });
+        }
+        setLoadingData(false);
+      }
     };
 
-    loadOptions();
-
-    if (!isNew && id) {
-      supabase
-        .from("benefits")
-        .select(
-          "id, title, description_raw, ai_description, merchant_id, image_url, issuer_id, category_id, value_type, value, channel, status, starts_at, ends_at",
-        )
-        .eq("id", id)
-        .maybeSingle()
-        .then(({ data }) => {
-          if (data) {
-            reset({
-              title: data.title ?? "",
-              description_raw: data.description_raw ?? "",
-              ai_description: data.ai_description ?? "",
-              merchant_id: data.merchant_id ?? "",
-              image_url: data.image_url ?? "",
-              issuer_id: data.issuer_id ?? "",
-              category_id: data.category_id ?? "",
-              value_type: data.value_type ?? "",
-              value: data.value != null ? String(data.value) : "",
-              channel: data.channel ?? "",
-              status: data.status ?? "active",
-              starts_at: data.starts_at ? String(data.starts_at).substring(0, 10) : "",
-              ends_at: data.ends_at ? String(data.ends_at).substring(0, 10) : "",
-            });
-          }
-          setLoadingData(false);
-        });
-    }
+    load();
   }, [id, isNew, reset]);
 
   const onSubmit = handleSubmit(async (values) => {
