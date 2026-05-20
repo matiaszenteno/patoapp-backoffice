@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
 import type { LatLng } from "leaflet";
+import { getLocationPipelineHeaders } from "../lib/pipelineSecret";
 import { supabase } from "../lib/supabase";
 
 type LocationRow = {
@@ -303,9 +304,18 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
     const token = await getToken();
     if (!token) { setOpResult({ error: "No autenticado." }); setOpLoading(false); return; }
 
+    let headers: Record<string, string>;
+    try {
+      headers = getLocationPipelineHeaders(token);
+    } catch (err) {
+      setOpResult({ error: err instanceof Error ? err.message : "No se pudo configurar el pipeline." });
+      setOpLoading(false);
+      return;
+    }
+
     const { data, error } = await supabase.functions.invoke("refresh-merchant-locations", {
       body: { merchantIds: [merchant.id], force: true },
-      headers: { Authorization: `Bearer ${token}` },
+      headers,
     });
 
     setOpLoading(false);

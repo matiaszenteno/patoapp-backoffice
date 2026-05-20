@@ -14,6 +14,7 @@ cp .env.example .env
 # Editar .env con los valores del .env.local del repo raíz:
 #   VITE_SUPABASE_URL  →  EXPO_PUBLIC_SUPABASE_URL
 #   VITE_SUPABASE_ANON_KEY  →  EXPO_PUBLIC_SUPABASE_ANON_KEY
+#   VITE_LOCATION_PIPELINE_SECRET  →  LOCATION_PIPELINE_SECRET
 
 npm run dev
 # Abre http://localhost:5173
@@ -25,6 +26,7 @@ Loguearse con el email de desarrollador (el acceso de escritura está protegido 
 
 - **Beneficios**: buscar, editar, crear manualmente y eliminar beneficios
 - **Ubicaciones**: editar dirección, nombre de local y coordenadas (con mapa arrastrable) de los merchants
+- **Pipeline**: publicar beneficios pendientes, regenerar descripciones IA y actualizar ubicaciones scrapeadas
 
 ## Acceso autorizado
 
