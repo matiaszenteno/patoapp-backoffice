@@ -9,7 +9,7 @@ import { Review } from "./pages/Review";
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/patoapp-backoffice">
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route
