@@ -34,7 +34,7 @@ export function Login() {
       if (authError) {
         setError(authError.message);
       } else {
-        navigate("/benefits");
+        navigate("/clasificacion");
       }
     } else {
       const { error: authError } = await supabase.auth.signInWithOtp({
@@ -51,20 +51,20 @@ export function Login() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50">
-      <div className="w-full max-w-sm rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
-        <h1 className="mb-1 text-2xl font-bold text-gray-900">🐥 Backoffice</h1>
-        <p className="mb-6 text-sm text-gray-500">Solo para desarrolladores de Patoapp</p>
+    <div className="flex min-h-screen items-center justify-center bg-stone-50">
+      <div className="w-full max-w-sm rounded-lg border border-stone-200 bg-white p-8">
+        <h1 className="mb-1 text-2xl font-bold text-stone-900">🐥 Backoffice</h1>
+        <p className="mb-6 text-sm text-stone-500">Solo para desarrolladores de Patoapp</p>
 
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="email">
+            <label className="mb-1 block text-sm font-medium text-stone-700" htmlFor="email">
               Email
             </label>
             <input
               autoComplete="email"
               autoFocus
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+              className="w-full rounded-md border border-stone-200 px-3 py-2 text-sm outline-none focus:border-stone-500 focus:ring-1 focus:ring-stone-300 text-stone-900 placeholder:text-stone-300"
               id="email"
               onChange={(e) => setEmail(e.target.value)}
               placeholder="tu@email.com"
@@ -75,13 +75,13 @@ export function Login() {
           </div>
 
           {error ? (
-            <p className={`rounded-lg px-3 py-2 text-sm ${error.includes("link") ? "bg-blue-50 text-blue-700" : "bg-red-50 text-red-600"}`}>
+            <p className="rounded-md border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-600">
               {error}
             </p>
           ) : null}
 
           <button
-            className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-teal-800 disabled:opacity-60"
+            className="rounded-md bg-stone-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-stone-800 disabled:opacity-60"
             disabled={loading}
             type="submit"
           >

@@ -153,17 +153,17 @@ function LocationEditor({
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-4">
+    <div className="flex flex-col gap-3 rounded-lg border border-stone-200 bg-white p-4">
       {!isNew && (
         <div>
-          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+          <span className="rounded bg-stone-100 border border-stone-200 px-2 py-0.5 text-xs text-stone-500">
             {draft.source}
           </span>
         </div>
       )}
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-gray-600">Nombre del local</label>
+          <label className="text-xs font-medium text-stone-600">Nombre del local</label>
           <input
             className={inputCls}
             onChange={(e) => setDraft((d) => ({ ...d, label: e.target.value }))}
@@ -172,7 +172,7 @@ function LocationEditor({
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-gray-600">Dirección</label>
+          <label className="text-xs font-medium text-stone-600">Dirección</label>
           <input
             className={inputCls}
             onChange={(e) => setDraft((d) => ({ ...d, address: e.target.value }))}
@@ -181,7 +181,7 @@ function LocationEditor({
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-gray-600">Latitud</label>
+          <label className="text-xs font-medium text-stone-600">Latitud</label>
           <input
             className={inputCls}
             onChange={(e) => setDraft((d) => ({ ...d, latitude: e.target.value }))}
@@ -191,7 +191,7 @@ function LocationEditor({
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-gray-600">Longitud</label>
+          <label className="text-xs font-medium text-stone-600">Longitud</label>
           <input
             className={inputCls}
             onChange={(e) => setDraft((d) => ({ ...d, longitude: e.target.value }))}
@@ -224,14 +224,14 @@ function LocationEditor({
       </div>
 
       {error ? (
-        <p className="text-xs text-red-600">{error}</p>
+        <p className="text-xs text-stone-500">{error}</p>
       ) : success ? (
-        <p className="text-xs text-emerald-600">Guardado.</p>
+        <p className="text-xs text-stone-500">Guardado.</p>
       ) : null}
 
       <div className="flex items-center gap-3">
         <button
-          className="rounded-lg bg-teal-700 px-4 py-1.5 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+          className="rounded-md bg-stone-900 px-4 py-1.5 text-sm font-semibold text-white hover:bg-stone-800 disabled:opacity-60"
           disabled={saving}
           onClick={handleSave}
           type="button"
@@ -239,7 +239,11 @@ function LocationEditor({
           {saving ? "Guardando..." : isNew ? "Agregar" : "Guardar"}
         </button>
         {!isNew && (
-          <button className="text-sm text-red-500 hover:underline" onClick={handleDelete} type="button">
+          <button
+            className="text-sm text-stone-400 hover:text-stone-700"
+            onClick={handleDelete}
+            type="button"
+          >
             Eliminar
           </button>
         )}
@@ -360,52 +364,48 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
   };
 
   return (
-    <div
-      className={`overflow-hidden rounded-xl border bg-white transition-colors ${
-        expanded ? "border-teal-200" : "border-gray-200"
-      }`}
-    >
+    <div className="overflow-hidden rounded-lg border border-stone-200 bg-white">
       <button
-        className="flex w-full items-center justify-between px-5 py-4 text-left hover:bg-gray-50"
+        className="flex w-full items-center justify-between px-5 py-4 text-left hover:bg-stone-50"
         onClick={handleExpand}
         type="button"
       >
         <span className="flex min-w-0 items-center gap-3">
           {merchant.image_url ? (
-            <img alt="" className="h-9 w-9 rounded-md border border-gray-100 object-cover" src={merchant.image_url} />
+            <img alt="" className="h-9 w-9 rounded-md border border-stone-100 object-cover" src={merchant.image_url} />
           ) : (
-            <span className="flex h-9 w-9 items-center justify-center rounded-md bg-gray-100 text-xs text-gray-400">
+            <span className="flex h-9 w-9 items-center justify-center rounded-md bg-stone-100 text-xs text-stone-400">
               —
             </span>
           )}
           <span className="min-w-0">
-            <span className="block truncate font-medium text-gray-900">{merchant.name}</span>
-            <span className="block truncate text-xs text-gray-400">{merchant.normalized_name}</span>
+            <span className="block truncate font-medium text-stone-900">{merchant.name}</span>
+            <span className="block truncate text-xs text-stone-400">{merchant.normalized_name}</span>
           </span>
         </span>
         <div className="flex items-center gap-3">
-          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
+          <span className="rounded bg-stone-100 border border-stone-200 px-2 py-0.5 text-xs text-stone-500">
             {locCount} {locCount === 1 ? "ubicación" : "ubicaciones"}
           </span>
-          <span className="text-gray-400">{expanded ? "▲" : "▼"}</span>
+          <span className="text-stone-400">{expanded ? "▲" : "▼"}</span>
         </div>
       </button>
 
       {expanded && (
-        <div className={`border-t p-5 ${expanded ? "border-teal-100" : "border-gray-100"}`}>
+        <div className="border-t border-stone-200 p-5">
           <div className="flex flex-col gap-6">
-            <div className="flex flex-col gap-4 rounded-lg border border-gray-100 bg-gray-50 p-4">
-              <h3 className="text-sm font-semibold text-gray-700">Datos del merchant</h3>
+            <div className="flex flex-col gap-4 rounded-lg border border-stone-200 bg-stone-50 p-4">
+              <h3 className="text-sm font-semibold text-stone-700">Datos del merchant</h3>
               <div className="flex flex-col gap-4 md:flex-row">
-                <div className="h-24 w-32 overflow-hidden rounded-lg border border-gray-200 bg-white">
+                <div className="h-24 w-32 overflow-hidden rounded-lg border border-stone-200 bg-white">
                   {draftMerchant.image_url.trim() ? (
                     <img alt="" className="h-full w-full object-cover" src={draftMerchant.image_url.trim()} />
                   ) : (
-                    <div className="flex h-full items-center justify-center text-xs text-gray-400">Sin foto</div>
+                    <div className="flex h-full items-center justify-center text-xs text-stone-400">Sin foto</div>
                   )}
                 </div>
                 <div className="grid flex-1 grid-cols-1 gap-3 md:grid-cols-2">
-                  <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
+                  <label className="flex flex-col gap-1 text-xs font-medium text-stone-600">
                     Nombre
                     <input
                       className={inputCls}
@@ -413,7 +413,7 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
                       value={draftMerchant.name}
                     />
                   </label>
-                  <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
+                  <label className="flex flex-col gap-1 text-xs font-medium text-stone-600">
                     Normalized name
                     <input
                       className={inputCls}
@@ -421,7 +421,7 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
                       value={draftMerchant.normalized_name}
                     />
                   </label>
-                  <label className="flex flex-col gap-1 text-xs font-medium text-gray-600 md:col-span-2">
+                  <label className="flex flex-col gap-1 text-xs font-medium text-stone-600 md:col-span-2">
                     URL de imagen
                     <input
                       className={inputCls}
@@ -432,20 +432,20 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
                   </label>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+              <div className="flex flex-wrap items-center gap-3 text-xs text-stone-500">
                 <span>addresses_resolved_at: {merchant.addresses_resolved_at ? new Date(merchant.addresses_resolved_at).toLocaleString("es-CL") : "pendiente"}</span>
                 {Object.entries(merchant.location_sources).map(([source, count]) => (
-                  <span className="rounded-full bg-white px-2 py-0.5" key={source}>{source}: {count}</span>
+                  <span className="rounded bg-white border border-stone-200 px-2 py-0.5" key={source}>{source}: {count}</span>
                 ))}
               </div>
               {merchant.scraped_addresses.length > 0 && (
-                <div className="rounded-lg bg-white p-3">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Direcciones scrapeadas</p>
+                <div className="rounded-lg bg-white border border-stone-200 p-3">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">Direcciones scrapeadas</p>
                   <div className="flex flex-col gap-1">
                     {merchant.scraped_addresses.map((entry, index) => (
-                      <div className="text-xs text-gray-600" key={`${entry.address ?? index}-${index}`}>
+                      <div className="text-xs text-stone-600" key={`${entry.address ?? index}-${index}`}>
                         {entry.address ?? "—"}
-                        {entry.source ? <span className="ml-2 text-gray-400">({entry.source})</span> : null}
+                        {entry.source ? <span className="ml-2 text-stone-400">({entry.source})</span> : null}
                       </div>
                     ))}
                   </div>
@@ -453,7 +453,7 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
               )}
               <div className="flex items-center gap-3">
                 <button
-                  className="rounded-lg bg-teal-700 px-4 py-1.5 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+                  className="rounded-md bg-stone-900 px-4 py-1.5 text-sm font-semibold text-white hover:bg-stone-800 disabled:opacity-60"
                   disabled={merchantSaving}
                   onClick={handleSaveMerchant}
                   type="button"
@@ -461,19 +461,17 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
                   {merchantSaving ? "Guardando..." : "Guardar merchant"}
                 </button>
                 {merchantResult && (
-                  <span className={`text-xs ${merchantResult.includes("guardado") ? "text-emerald-700" : "text-red-600"}`}>
-                    {merchantResult}
-                  </span>
+                  <span className="text-xs text-stone-500">{merchantResult}</span>
                 )}
               </div>
             </div>
 
             {/* Ubicaciones */}
             <div className="flex flex-col gap-3">
-              <h3 className="text-sm font-semibold text-gray-700">Ubicaciones</h3>
+              <h3 className="text-sm font-semibold text-stone-700">Ubicaciones</h3>
 
               {loadingLocs ? (
-                <p className="text-sm text-gray-400">Cargando ubicaciones...</p>
+                <p className="text-sm text-stone-400">Cargando ubicaciones...</p>
               ) : (
                 <>
                   {(locations ?? []).map((loc) => (
@@ -487,12 +485,12 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
                   ))}
 
                   {(locations ?? []).length === 0 && (
-                    <p className="text-sm text-gray-400">Sin ubicaciones registradas.</p>
+                    <p className="text-sm text-stone-400">Sin ubicaciones registradas.</p>
                   )}
 
                   {showNewForm ? (
                     <div className="flex flex-col gap-2">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">
                         Nueva ubicación
                       </p>
                       <LocationEditor
@@ -505,7 +503,7 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
                     </div>
                   ) : (
                     <button
-                      className="self-start text-sm font-medium text-teal-700 hover:underline"
+                      className="self-start text-sm font-medium text-stone-500 hover:text-stone-900"
                       onClick={() => setShowNewForm(true)}
                       type="button"
                     >
@@ -517,15 +515,15 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
             </div>
 
             {/* Operaciones */}
-            <div className="flex flex-col gap-3 rounded-lg border border-gray-100 bg-gray-50 p-4">
-              <h3 className="text-sm font-semibold text-gray-700">Operaciones</h3>
+            <div className="flex flex-col gap-3 rounded-lg border border-stone-200 bg-stone-50 p-4">
+              <h3 className="text-sm font-semibold text-stone-700">Operaciones</h3>
               <div className="flex flex-col gap-1">
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-stone-500">
                   Busca y actualiza las coordenadas de este merchant usando su dirección. Útil cuando se agregan o modifican ubicaciones.
                 </p>
                 <div className="mt-2 flex items-center gap-3">
                   <button
-                    className="rounded-lg border border-teal-600 px-4 py-1.5 text-sm font-medium text-teal-700 hover:bg-teal-50 disabled:opacity-60"
+                    className="rounded-md border border-stone-200 px-4 py-1.5 text-sm font-medium text-stone-700 hover:border-stone-400 hover:text-stone-900 disabled:opacity-60"
                     disabled={opLoading}
                     onClick={handleActualizarUbicaciones}
                     type="button"
@@ -534,13 +532,13 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
                   </button>
                 </div>
                 {opResult?.error && (
-                  <p className="mt-1 text-xs text-red-600">{opResult.error}</p>
+                  <p className="mt-1 text-xs text-stone-500">{opResult.error}</p>
                 )}
                 {opResult?.ok && (
                   <div className="mt-1">
-                    <p className="text-xs text-emerald-700">Actualización iniciada correctamente.</p>
+                    <p className="text-xs text-stone-500">Actualización iniciada correctamente.</p>
                     {opResult.runUrl && (
-                      <a className="text-xs text-teal-600 underline" href={opResult.runUrl} rel="noreferrer" target="_blank">
+                      <a className="text-xs text-stone-600 underline" href={opResult.runUrl} rel="noreferrer" target="_blank">
                         Ver progreso →
                       </a>
                     )}
@@ -602,10 +600,10 @@ export function Merchants() {
   }, [query, merchants]);
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="max-w-5xl mx-auto px-6 py-8 flex flex-col gap-5">
       <div>
-        <h1 className="text-xl font-bold text-gray-900">Merchants</h1>
-        <p className="mt-0.5 text-sm text-gray-500">Gestiona ubicaciones y operaciones por merchant.</p>
+        <h1 className="text-xl font-bold text-stone-900">Merchants</h1>
+        <p className="mt-0.5 text-sm text-stone-500">Gestiona ubicaciones y operaciones por merchant.</p>
       </div>
 
       <input
@@ -617,14 +615,14 @@ export function Merchants() {
       />
 
       {loading ? (
-        <p className="text-sm text-gray-400">Cargando...</p>
+        <p className="text-sm text-stone-400">Cargando...</p>
       ) : (
         <div className="flex flex-col gap-2">
           {filtered.map((m) => (
             <MerchantCard key={m.id} merchant={m} />
           ))}
           {filtered.length === 0 && (
-            <p className="text-center text-sm text-gray-400">Sin resultados</p>
+            <p className="text-center text-sm text-stone-400">Sin resultados</p>
           )}
         </div>
       )}

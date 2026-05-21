@@ -77,11 +77,11 @@ export function BenefitsList() {
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="max-w-5xl mx-auto px-6 py-8 flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900">Beneficios</h1>
+        <h1 className="text-xl font-bold text-stone-900">Beneficios</h1>
         <Link
-          className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800"
+          className="rounded-md bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-800"
           to="/benefits/new"
         >
           + Nuevo beneficio
@@ -89,22 +89,22 @@ export function BenefitsList() {
       </div>
 
       {queryError ? (
-        <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-md border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-600">
           <strong>Error:</strong> {queryError}
         </div>
       ) : null}
 
       <input
-        className="rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+        className="rounded-md border border-stone-200 px-3 py-2 text-sm outline-none focus:border-stone-500 focus:ring-1 focus:ring-stone-300 text-stone-900 placeholder:text-stone-300"
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Buscar por título o merchant..."
         type="search"
         value={query}
       />
 
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+      <div className="overflow-hidden rounded-lg border border-stone-200 bg-white">
         <table className="w-full text-sm">
-          <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
+          <thead className="border-b border-stone-200 bg-stone-50 text-left text-xs font-medium uppercase tracking-wide text-stone-500">
             <tr>
               <th className="px-4 py-3">Foto</th>
               <th className="px-4 py-3">Merchant</th>
@@ -115,10 +115,10 @@ export function BenefitsList() {
               <th className="px-4 py-3">Estado</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-stone-100">
             {benefits.map((b) => (
               <tr
-                className="cursor-pointer hover:bg-gray-50"
+                className="cursor-pointer hover:bg-stone-50"
                 key={b.id}
                 onClick={() => navigate(`/benefits/${b.id}`)}
               >
@@ -126,37 +126,31 @@ export function BenefitsList() {
                   {b.image_url || b.merchant_image_url ? (
                     <img
                       alt=""
-                      className="h-12 w-16 rounded-md border border-gray-100 object-cover"
+                      className="h-12 w-16 rounded-md border border-stone-100 object-cover"
                       src={b.image_url ?? b.merchant_image_url ?? ""}
                     />
                   ) : (
-                    <div className="flex h-12 w-16 items-center justify-center rounded-md border border-dashed border-gray-200 text-xs text-gray-300">
+                    <div className="flex h-12 w-16 items-center justify-center rounded-md border border-dashed border-stone-200 text-xs text-stone-300">
                       —
                     </div>
                   )}
                 </td>
-                <td className="px-4 py-3 font-medium text-gray-900">
+                <td className="px-4 py-3 font-medium text-stone-900">
                   {b.merchant_name ?? "—"}
                 </td>
-                <td className="max-w-xs px-4 py-3 text-gray-700">
+                <td className="max-w-xs px-4 py-3 text-stone-700">
                   <span className="line-clamp-1">{b.title}</span>
                   {b.source_url ? (
-                    <span className="block truncate text-xs text-gray-400">{b.source_url}</span>
+                    <span className="block truncate text-xs text-stone-400">{b.source_url}</span>
                   ) : null}
                 </td>
-                <td className="px-4 py-3 text-gray-500">{b.category_name ?? "—"}</td>
-                <td className="px-4 py-3 text-gray-500">{b.issuer_name ?? "—"}</td>
-                <td className="px-4 py-3 text-gray-500">
+                <td className="px-4 py-3 text-stone-500">{b.category_name ?? "—"}</td>
+                <td className="px-4 py-3 text-stone-500">{b.issuer_name ?? "—"}</td>
+                <td className="px-4 py-3 text-stone-500">
                   {b.ends_at ? b.ends_at.substring(0, 10) : "—"}
                 </td>
                 <td className="px-4 py-3">
-                  <span
-                    className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                      b.status === "active"
-                        ? "bg-emerald-50 text-emerald-700"
-                        : "bg-gray-100 text-gray-500"
-                    }`}
-                  >
+                  <span className="inline-block rounded bg-stone-100 border border-stone-200 px-2 py-0.5 text-xs text-stone-500">
                     {b.status === "active" ? "activo" : "expirado"}
                   </span>
                 </td>
@@ -164,7 +158,7 @@ export function BenefitsList() {
             ))}
             {!loading && benefits.length === 0 && (
               <tr>
-                <td className="px-4 py-8 text-center text-gray-400" colSpan={7}>
+                <td className="px-4 py-8 text-center text-stone-400" colSpan={7}>
                   Sin resultados
                 </td>
               </tr>
@@ -174,12 +168,12 @@ export function BenefitsList() {
       </div>
 
       {loading && (
-        <p className="text-center text-sm text-gray-400">Cargando...</p>
+        <p className="text-center text-sm text-stone-400">Cargando...</p>
       )}
 
       {!loading && hasMore && (
         <button
-          className="mx-auto text-sm font-medium text-teal-700 hover:underline"
+          className="mx-auto text-sm font-medium text-stone-600 hover:underline"
           onClick={handleLoadMore}
           type="button"
         >

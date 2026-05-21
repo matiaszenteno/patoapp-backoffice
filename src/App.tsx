@@ -6,8 +6,7 @@ import { BenefitsList } from "./pages/BenefitsList";
 import { BenefitEdit } from "./pages/BenefitEdit";
 import { Merchants } from "./pages/Merchants";
 import { Clasificacion } from "./pages/Clasificacion";
-import { Scrapers } from "./pages/Scrapers";
-import { Pipeline } from "./pages/Pipeline";
+import { Operaciones } from "./pages/Operaciones";
 
 export default function App() {
   return (
@@ -21,14 +20,15 @@ export default function App() {
             </ProtectedRoute>
           }
         >
-          <Route index element={<Navigate replace to="/benefits" />} />
+          <Route index element={<Navigate replace to="/clasificacion" />} />
+          <Route path="/clasificacion" element={<Clasificacion />} />
           <Route path="/benefits" element={<BenefitsList />} />
           <Route path="/benefits/new" element={<BenefitEdit />} />
           <Route path="/benefits/:id" element={<BenefitEdit />} />
           <Route path="/merchants" element={<Merchants />} />
-          <Route path="/scrapers" element={<Scrapers />} />
-          <Route path="/pipeline" element={<Pipeline />} />
-          <Route path="/clasificacion" element={<Clasificacion />} />
+          <Route path="/operaciones" element={<Operaciones />} />
+          <Route path="/scrapers" element={<Navigate replace to="/operaciones" />} />
+          <Route path="/pipeline" element={<Navigate replace to="/operaciones" />} />
         </Route>
       </Routes>
     </BrowserRouter>

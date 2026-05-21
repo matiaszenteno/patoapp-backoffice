@@ -80,9 +80,9 @@ function Field({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <label className="text-sm font-medium text-gray-700">{label}</label>
+      <label className="text-sm font-medium text-stone-700">{label}</label>
       {children}
-      {error ? <p className="text-xs text-red-600">{error}</p> : null}
+      {error ? <p className="text-xs text-stone-500">{error}</p> : null}
     </div>
   );
 }
@@ -232,7 +232,7 @@ export function BenefitEdit() {
   const isScraped = !isNew && rawBenefitId !== null;
 
   const onSubmit = handleSubmit(async (values) => {
-    if (isScraped) return; // defensivo: los scraped son read-only.
+    if (isScraped) return;
     setSaving(true);
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -362,36 +362,36 @@ export function BenefitEdit() {
   };
 
   if (loadingData) {
-    return <p className="text-gray-400">Cargando...</p>;
+    return <p className="text-stone-400 px-6 py-8">Cargando...</p>;
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="max-w-3xl mx-auto px-6 py-8 flex flex-col gap-6">
       <div className="flex items-center gap-3">
         <button
-          className="text-sm text-teal-700 hover:underline"
+          className="text-sm text-stone-500 hover:text-stone-900"
           onClick={() => navigate("/benefits")}
           type="button"
         >
           ← Volver
         </button>
-        <h1 className="text-xl font-bold text-gray-900">
+        <h1 className="text-xl font-bold text-stone-900">
           {isNew ? "Nuevo beneficio" : "Editar beneficio"}
         </h1>
       </div>
 
       <form
-        className="flex flex-col gap-5 rounded-xl border border-gray-200 bg-white p-6"
+        className="flex flex-col gap-5 rounded-lg border border-stone-200 bg-white p-6"
         onSubmit={onSubmit}
       >
         {isScraped && (
-          <div className="flex flex-col gap-2 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <div className="flex flex-col gap-2 rounded-md border border-stone-200 bg-stone-100 px-4 py-3 text-sm text-stone-600">
             <p>
               Este beneficio viene de scraping; el pipeline es dueño de sus campos. Para corregir
               su contenido, hazlo como corrección sobre el raw (así el pipeline lo respeta y republica).
             </p>
             <button
-              className="self-start rounded-md border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+              className="self-start rounded-md border border-stone-300 px-3 py-1.5 text-xs font-medium text-stone-700 hover:border-stone-400 hover:text-stone-900"
               onClick={() => navigate(`/clasificacion?raw=${rawBenefitId}`)}
               type="button"
             >
@@ -402,11 +402,11 @@ export function BenefitEdit() {
 
         <fieldset className="contents" disabled={isScraped}>
         <div className="flex flex-col gap-4 md:flex-row">
-          <div className="h-32 w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-50 md:w-48">
+          <div className="h-32 w-full overflow-hidden rounded-lg border border-stone-200 bg-stone-50 md:w-48">
             {previewImageUrl ? (
               <img alt="" className="h-full w-full object-cover" src={previewImageUrl} />
             ) : (
-              <div className="flex h-full items-center justify-center text-sm text-gray-400">Sin imagen</div>
+              <div className="flex h-full items-center justify-center text-sm text-stone-400">Sin imagen</div>
             )}
           </div>
           <div className="grid flex-1 grid-cols-1 gap-5 md:grid-cols-2">
@@ -540,16 +540,16 @@ export function BenefitEdit() {
         </fieldset>
 
         {errorMsg ? (
-          <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{errorMsg}</p>
+          <p className="rounded-md border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-600">{errorMsg}</p>
         ) : null}
         {successMsg ? (
-          <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{successMsg}</p>
+          <p className="rounded-md border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-600">{successMsg}</p>
         ) : null}
 
-        <div className="flex items-center gap-3 border-t border-gray-100 pt-4">
+        <div className="flex items-center gap-3 border-t border-stone-100 pt-4">
           {!isScraped && (
             <button
-              className="rounded-lg bg-teal-700 px-5 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+              className="rounded-md bg-stone-900 px-5 py-2 text-sm font-semibold text-white hover:bg-stone-800 disabled:opacity-60"
               disabled={saving}
               type="submit"
             >
@@ -559,7 +559,7 @@ export function BenefitEdit() {
 
           {!isNew && (
             <button
-              className="rounded-lg border border-amber-300 px-5 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-60"
+              className="rounded-md border border-stone-200 px-5 py-2 text-sm font-medium text-stone-500 hover:border-stone-400 hover:text-stone-800 disabled:opacity-60"
               disabled={saving}
               onClick={handleExpire}
               type="button"
@@ -570,7 +570,7 @@ export function BenefitEdit() {
 
           {!isNew && (
             <button
-              className="ml-auto rounded-lg border border-red-200 px-5 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
+              className="ml-auto rounded-md border border-stone-200 px-5 py-2 text-sm font-medium text-stone-500 hover:border-stone-400 hover:text-stone-800 disabled:opacity-60"
               disabled={deleting}
               onClick={handleDelete}
               type="button"
@@ -582,12 +582,12 @@ export function BenefitEdit() {
       </form>
 
       {!isNew && (
-        <div className="flex flex-col gap-4 rounded-xl border border-gray-200 bg-white p-6">
-          <h2 className="text-base font-semibold text-gray-900">Operaciones</h2>
+        <div className="flex flex-col gap-4 rounded-lg border border-stone-200 bg-white p-6">
+          <h2 className="text-base font-semibold text-stone-900">Operaciones</h2>
           <div className="flex flex-wrap gap-3">
             <div className="flex flex-col gap-1">
               <button
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                className="rounded-md border border-stone-200 px-4 py-2 text-sm font-medium text-stone-700 hover:border-stone-400 hover:text-stone-900 disabled:opacity-60"
                 disabled={opLoading["ai_desc"]}
                 onClick={() => runOp("ai_desc", "run-refresh-ai-descriptions", { benefitIds: [id], force: true })}
                 title="Regenera la descripción corta de IA para este beneficio"
@@ -596,10 +596,10 @@ export function BenefitEdit() {
                 {opLoading["ai_desc"] ? "Generando..." : "Regenerar descripción con IA"}
               </button>
               {opResults["ai_desc"]?.error && (
-                <p className="text-xs text-red-600">{opResults["ai_desc"].error}</p>
+                <p className="text-xs text-stone-500">{opResults["ai_desc"].error}</p>
               )}
               {opResults["ai_desc"]?.ok && (
-                <p className="text-xs text-emerald-700">
+                <p className="text-xs text-stone-500">
                   {JSON.stringify(opResults["ai_desc"].ok)}
                 </p>
               )}
