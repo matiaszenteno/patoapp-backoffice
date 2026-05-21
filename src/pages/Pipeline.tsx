@@ -59,7 +59,7 @@ function ReprocessTab() {
   return (
     <div className="flex flex-col gap-6">
       <p className="text-sm text-gray-500">
-        Avanza todo lo que está pendiente de publicar. Las direcciones pendientes se resuelven automáticamente.
+        Avanza todos los beneficios que están pendientes de publicar.
       </p>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -94,7 +94,7 @@ function ReprocessTab() {
             />
             <div>
               <p className="text-sm font-medium text-gray-800">Continuar pendientes</p>
-              <p className="text-xs text-gray-500">Solo procesa las etapas que faltan; salta lo ya avanzado.</p>
+              <p className="text-xs text-gray-500">Avanza solo las etapas que le faltan a cada beneficio, sin repetir lo ya hecho.</p>
             </div>
           </label>
           <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 bg-white p-3 hover:bg-gray-50">
@@ -107,7 +107,7 @@ function ReprocessTab() {
             />
             <div>
               <p className="text-sm font-medium text-gray-800">Rehacer desde cero</p>
-              <p className="text-xs text-gray-500">Pisa lo avanzado: re-enrichment, re-embedding y re-publicación.</p>
+              <p className="text-xs text-gray-500">Reprocesa todo desde el principio, incluyendo los análisis de IA ya realizados.</p>
             </div>
           </label>
         </div>
@@ -123,7 +123,7 @@ function ReprocessTab() {
           />
           <div>
             <p className="text-sm font-medium text-gray-800">Solo previsualizar candidatos</p>
-            <p className="text-xs text-gray-500">Dispara el workflow en dry-run para ver cuántos raws procesaría.</p>
+            <p className="text-xs text-gray-500">Muestra cuántos beneficios serían procesados, sin ejecutar nada.</p>
           </div>
         </label>
       </div>
@@ -195,7 +195,7 @@ function AiDescriptionsTab() {
   return (
     <div className="flex flex-col gap-6">
       <p className="text-sm text-gray-500">
-        Genera o actualiza la descripción corta de beneficios publicados usando IA. Por defecto solo procesa los que aún no tienen descripción.
+        Genera o actualiza la descripción corta de beneficios publicados con IA, sin reprocesarlos por completo. Útil cuando cambia el redactor o el formato de las descripciones. Por defecto solo procesa los que aún no tienen descripción.
       </p>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -226,7 +226,7 @@ function AiDescriptionsTab() {
         />
         <div>
           <p className="text-sm font-medium text-gray-800">Sobreescribir descripciones existentes</p>
-          <p className="text-xs text-gray-500">Sin esta opción, solo procesa beneficios que todavía no tienen descripción de IA.</p>
+          <p className="text-xs text-gray-500">Sin esta opción, solo procesa beneficios que aún no tienen descripción.</p>
         </div>
       </label>
 
@@ -288,13 +288,13 @@ function LocationsTab() {
   return (
     <div className="flex flex-col gap-6">
       <p className="text-sm text-gray-500">
-        Resuelve direcciones scrapeadas de merchants y crea/actualiza registros en merchant_locations.
-        Por defecto procesa solo merchants pendientes o vencidos por TTL; con forzar vuelve a revisar todos los candidatos seleccionados.
+        Geocodifica las direcciones de los comercios y actualiza sus ubicaciones.
+        Por defecto solo procesa los que están pendientes o llevan más de 30 días sin actualizarse.
       </p>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-gray-700">Máximo de merchants</label>
+          <label className="text-sm font-medium text-gray-700">Máximo de comercios</label>
           <input
             className={inputCls}
             max={100}
@@ -303,11 +303,11 @@ function LocationsTab() {
             type="number"
             value={limit}
           />
-          <p className="text-xs text-gray-400">La función limita internamente a 100.</p>
+          <p className="text-xs text-gray-400">Máximo 100.</p>
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-gray-700">Concurrencia</label>
+          <label className="text-sm font-medium text-gray-700">Comercios en paralelo</label>
           <input
             className={inputCls}
             max={5}
@@ -316,7 +316,7 @@ function LocationsTab() {
             type="number"
             value={concurrency}
           />
-          <p className="text-xs text-gray-400">La función limita internamente a 5.</p>
+          <p className="text-xs text-gray-400">Máximo 5.</p>
         </div>
       </div>
 
@@ -330,7 +330,7 @@ function LocationsTab() {
           />
           <div>
             <p className="text-sm font-medium text-gray-800">Solo previsualizar candidatos</p>
-            <p className="text-xs text-gray-500">No geocodifica ni escribe ubicaciones; muestra qué merchants serían procesados.</p>
+            <p className="text-xs text-gray-500">Muestra qué comercios serían actualizados, sin hacer cambios.</p>
           </div>
         </label>
 
@@ -343,7 +343,7 @@ function LocationsTab() {
           />
           <div>
             <p className="text-sm font-medium text-gray-800">Forzar actualización</p>
-            <p className="text-xs text-gray-500">Ignora el TTL de 30 días y vuelve a resolver las direcciones scrapeadas.</p>
+            <p className="text-xs text-gray-500">Vuelve a ubicar en el mapa incluso los comercios actualizados recientemente.</p>
           </div>
         </label>
       </div>
@@ -371,9 +371,9 @@ function LocationsTab() {
 // ---------- Main page ----------
 
 const TABS: { id: Tab; label: string; description: string }[] = [
-  { id: "reprocess", label: "Publicar pendientes", description: "Procesa beneficios scraped y los publica en la app" },
+  { id: "reprocess", label: "Publicar pendientes", description: "Publica los beneficios que están esperando procesamiento" },
   { id: "ai_descriptions", label: "Regenerar descripciones", description: "Genera o actualiza descripciones cortas con IA" },
-  { id: "locations", label: "Ubicaciones", description: "Resuelve ubicaciones scrapeadas de merchants" },
+  { id: "locations", label: "Ubicaciones", description: "Actualiza las ubicaciones de comercios en el mapa" },
 ];
 
 export function Pipeline() {
@@ -383,7 +383,7 @@ export function Pipeline() {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-xl font-bold text-gray-900">Pipeline</h1>
-        <p className="mt-0.5 text-sm text-gray-500">Operaciones de procesamiento de datos.</p>
+        <p className="mt-0.5 text-sm text-gray-500">Operaciones de publicación y mantenimiento.</p>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
