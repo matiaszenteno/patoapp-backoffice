@@ -15,7 +15,7 @@ type ScraperRun = {
 
 type RunState = {
   loading: boolean;
-  result: { triggered?: boolean; runUrl?: string; error?: string } | null;
+  result: { triggered?: boolean; runUrl?: string; error?: string; processMode?: string } | null;
 };
 
 function formatDate(iso: string | null) {
@@ -47,7 +47,7 @@ function StatusBadge({ status }: { status: string }) {
 export function Scrapers() {
   const [lastRuns, setLastRuns] = useState<Record<string, ScraperRun>>({});
   const [runStates, setRunStates] = useState<Record<string, RunState>>({});
-  const [force, setForce] = useState(false);
+  const [processMode, setProcessMode] = useState<"changed_only" | "force_pipeline">("changed_only");
   const [triggeringAll, setTriggeringAll] = useState(false);
 
   useEffect(() => {
@@ -74,7 +74,7 @@ export function Scrapers() {
       return;
     }
     const { data, error } = await supabase.functions.invoke("trigger-scraper", {
-      body: { issuerSlug, force },
+      body: { issuerSlug, processMode },
       headers: { Authorization: `Bearer ${token}` },
     });
     setRunStates((s) => ({
@@ -104,18 +104,15 @@ export function Scrapers() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <label
-            className="flex cursor-pointer items-center gap-2 text-sm text-gray-600"
-            title="Ignora el hash de contenido y fuerza re-scraping aunque la página no haya cambiado"
+          <select
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700"
+            onChange={(e) => setProcessMode(e.target.value as "changed_only" | "force_pipeline")}
+            title="changed_only respeta idempotencia; force_pipeline re-enriquece publicados idénticos"
+            value={processMode}
           >
-            <input
-              checked={force}
-              className="h-4 w-4 rounded border-gray-300 text-teal-600"
-              onChange={(e) => setForce(e.target.checked)}
-              type="checkbox"
-            />
-            Re-escanear aunque no haya cambios
-          </label>
+            <option value="changed_only">Solo cambios</option>
+            <option value="force_pipeline">Forzar pipeline</option>
+          </select>
           <button
             className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
             disabled={triggeringAll}

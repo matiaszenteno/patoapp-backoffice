@@ -6,9 +6,10 @@ import { z } from "zod";
 import { supabase } from "../lib/supabase";
 
 type SelectOption = { value: string; label: string };
+type MerchantOption = SelectOption & { imageUrl: string | null };
 
 const VALUE_TYPE_OPTIONS: SelectOption[] = [
-  { value: "", label: "— sin tipo —" },
+  { value: "", label: "N/A" },
   { value: "percentage", label: "Porcentaje" },
   { value: "fixed_amount", label: "Monto fijo" },
   { value: "free_item", label: "Producto gratis" },
@@ -20,10 +21,24 @@ const VALUE_TYPE_OPTIONS: SelectOption[] = [
 ];
 
 const CHANNEL_OPTIONS: SelectOption[] = [
-  { value: "", label: "— sin canal —" },
+  { value: "", label: "N/A" },
   { value: "online", label: "Online" },
   { value: "physical", label: "Físico" },
   { value: "hybrid", label: "Híbrido" },
+];
+
+const REDEMPTION_METHOD_OPTIONS: SelectOption[] = [
+  { value: "", label: "N/A" },
+  { value: "bin_detection", label: "Detección BIN" },
+  { value: "code", label: "Código" },
+  { value: "qr", label: "QR" },
+  { value: "app_link", label: "Link de app" },
+  { value: "coupon", label: "Cupón" },
+  { value: "deep_link", label: "Deep link" },
+  { value: "membership_validation", label: "Validación de membresía" },
+  { value: "automatic_checkout", label: "Checkout automático" },
+  { value: "gift_with_purchase", label: "Regalo con compra" },
+  { value: "manual_receipt_upload", label: "Subida manual de boleta" },
 ];
 
 const STATUS_OPTIONS: SelectOption[] = [
@@ -37,11 +52,15 @@ const schema = z.object({
   ai_description: z.string().optional(),
   merchant_id: z.string().optional(),
   image_url: z.string().optional(),
+  source_url: z.string().optional(),
   issuer_id: z.string().min(1, "Requerido"),
   category_id: z.string().min(1, "Requerido para publicar"),
   value_type: z.string().optional(),
   value: z.string().optional(),
   channel: z.string().min(1, "Requerido para publicar"),
+  redemption_method: z.string().optional(),
+  redemption_details: z.string().optional(),
+  benefit_rules: z.string().optional(),
   status: z.string().min(1),
   starts_at: z.string().optional(),
   ends_at: z.string().optional(),
@@ -71,6 +90,16 @@ const inputCls =
   "rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500";
 const selectCls = `${inputCls} bg-white`;
 
+function parseJsonObject(value: string | undefined, label: string): Record<string, unknown> {
+  const trimmed = value?.trim();
+  if (!trimmed) return {};
+  const parsed = JSON.parse(trimmed) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${label} debe ser un objeto JSON.`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
 export function BenefitEdit() {
   const { id } = useParams<{ id?: string }>();
   const isNew = !id;
@@ -78,7 +107,7 @@ export function BenefitEdit() {
 
   const [issuers, setIssuers] = useState<SelectOption[]>([]);
   const [categories, setCategories] = useState<SelectOption[]>([]);
-  const [merchants, setMerchants] = useState<SelectOption[]>([]);
+  const [merchants, setMerchants] = useState<MerchantOption[]>([]);
   const [loadingData, setLoadingData] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -92,6 +121,7 @@ export function BenefitEdit() {
     handleSubmit,
     register,
     reset,
+    watch,
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -100,23 +130,64 @@ export function BenefitEdit() {
       ai_description: "",
       merchant_id: "",
       image_url: "",
+      source_url: "",
       issuer_id: "",
       category_id: "",
       value_type: "",
       value: "",
       channel: "",
+      redemption_method: "",
+      redemption_details: "{}",
+      benefit_rules: "{}",
       status: "active",
       starts_at: "",
       ends_at: "",
     },
   });
 
+  const imageUrl = watch("image_url");
+  const merchantId = watch("merchant_id");
+  const selectedMerchant = merchants.find((merchant) => merchant.value === merchantId);
+  const previewImageUrl = imageUrl?.trim() || selectedMerchant?.imageUrl || "";
+
+  async function loadBenefitDetails(benefitId: string) {
+    const { data } = await supabase
+      .from("benefits")
+      .select(
+        "id, title, description_raw, ai_description, merchant_id, image_url, source_url, issuer_id, category_id, value_type, value, channel, redemption_method, redemption_details, benefit_rules, status, starts_at, ends_at",
+      )
+      .eq("id", benefitId)
+      .maybeSingle();
+
+    if (data) {
+      reset({
+        title: data.title ?? "",
+        description_raw: data.description_raw ?? "",
+        ai_description: data.ai_description ?? "",
+        merchant_id: data.merchant_id ?? "",
+        image_url: data.image_url ?? "",
+        source_url: data.source_url ?? "",
+        issuer_id: data.issuer_id ?? "",
+        category_id: data.category_id ?? "",
+        value_type: data.value_type ?? "",
+        value: data.value != null ? String(data.value) : "",
+        channel: data.channel ?? "",
+        redemption_method: data.redemption_method ?? "",
+        redemption_details: JSON.stringify(data.redemption_details ?? {}, null, 2),
+        benefit_rules: JSON.stringify(data.benefit_rules ?? {}, null, 2),
+        status: data.status ?? "active",
+        starts_at: data.starts_at ? String(data.starts_at).substring(0, 10) : "",
+        ends_at: data.ends_at ? String(data.ends_at).substring(0, 10) : "",
+      });
+    }
+  }
+
   useEffect(() => {
     const load = async () => {
       const [{ data: issuerData }, { data: catData }, { data: merchantData }] = await Promise.all([
         supabase.from("issuers").select("id, name").order("name"),
         supabase.from("categories").select("id, name").order("name"),
-        supabase.from("merchants").select("id, name").order("name"),
+        supabase.from("merchants").select("id, name, image_url").order("name"),
       ]);
 
       setIssuers([
@@ -134,39 +205,16 @@ export function BenefitEdit() {
         })),
       ]);
       setMerchants([
-        { value: "", label: "— sin merchant —" },
-        ...(merchantData ?? []).map((m: { id: string; name: string }) => ({
+        { imageUrl: null, value: "", label: "— sin merchant —" },
+        ...(merchantData ?? []).map((m: { id: string; image_url: string | null; name: string }) => ({
+          imageUrl: m.image_url,
           value: m.id,
           label: m.name,
         })),
       ]);
 
       if (!isNew && id) {
-        const { data } = await supabase
-          .from("benefits")
-          .select(
-            "id, title, description_raw, ai_description, merchant_id, image_url, issuer_id, category_id, value_type, value, channel, status, starts_at, ends_at",
-          )
-          .eq("id", id)
-          .maybeSingle();
-
-        if (data) {
-          reset({
-            title: data.title ?? "",
-            description_raw: data.description_raw ?? "",
-            ai_description: data.ai_description ?? "",
-            merchant_id: data.merchant_id ?? "",
-            image_url: data.image_url ?? "",
-            issuer_id: data.issuer_id ?? "",
-            category_id: data.category_id ?? "",
-            value_type: data.value_type ?? "",
-            value: data.value != null ? String(data.value) : "",
-            channel: data.channel ?? "",
-            status: data.status ?? "active",
-            starts_at: data.starts_at ? String(data.starts_at).substring(0, 10) : "",
-            ends_at: data.ends_at ? String(data.ends_at).substring(0, 10) : "",
-          });
-        }
+        await loadBenefitDetails(id);
         setLoadingData(false);
       }
     };
@@ -179,17 +227,32 @@ export function BenefitEdit() {
     setErrorMsg(null);
     setSuccessMsg(null);
 
+    let redemptionDetails: Record<string, unknown>;
+    let benefitRules: Record<string, unknown>;
+    try {
+      redemptionDetails = parseJsonObject(values.redemption_details, "Detalles de canje");
+      benefitRules = parseJsonObject(values.benefit_rules, "Reglas");
+    } catch (error) {
+      setSaving(false);
+      setErrorMsg(error instanceof Error ? error.message : "JSON inválido.");
+      return;
+    }
+
     const payload = {
       title: values.title.trim(),
       description_raw: values.description_raw.trim(),
       ai_description: values.ai_description?.trim() || null,
       merchant_id: values.merchant_id || null,
       image_url: values.image_url?.trim() || null,
+      source_url: values.source_url?.trim() || null,
       issuer_id: values.issuer_id,
       category_id: values.category_id || null,
       value_type: values.value_type || null,
       value: values.value ? Number(values.value) : null,
       channel: values.channel || null,
+      redemption_method: values.redemption_method || null,
+      redemption_details: redemptionDetails,
+      benefit_rules: benefitRules,
       status: values.status,
       starts_at: values.starts_at || null,
       ends_at: values.ends_at || null,
@@ -199,7 +262,7 @@ export function BenefitEdit() {
       const manualId = crypto.randomUUID();
       const { data, error } = await supabase
         .from("benefits")
-        .insert({ ...payload, source_url: `manual://${manualId}` })
+        .insert({ ...payload, source_url: payload.source_url ?? `manual://${manualId}` })
         .select("id")
         .single();
 
@@ -234,6 +297,9 @@ export function BenefitEdit() {
       body,
       headers: { Authorization: `Bearer ${token}` },
     });
+    if (!error && key === "ai_desc" && id) {
+      await loadBenefitDetails(id);
+    }
     setOpLoading((s) => ({ ...s, [key]: false }));
     setOpResults((s) => ({
       ...s,
@@ -253,6 +319,21 @@ export function BenefitEdit() {
       setErrorMsg(error.message);
     } else {
       navigate("/benefits");
+    }
+  };
+
+  const handleExpire = async () => {
+    if (!id) return;
+    if (!confirm("¿Expirar este beneficio ahora? Dejará de mostrarse como activo.")) return;
+    setSaving(true);
+    setErrorMsg(null);
+    const { error } = await supabase.from("benefits").update({ status: "expired" }).eq("id", id);
+    setSaving(false);
+    if (error) {
+      setErrorMsg(error.message);
+    } else {
+      await loadBenefitDetails(id);
+      setSuccessMsg("Beneficio expirado.");
     }
   };
 
@@ -279,6 +360,24 @@ export function BenefitEdit() {
         className="flex flex-col gap-5 rounded-xl border border-gray-200 bg-white p-6"
         onSubmit={onSubmit}
       >
+        <div className="flex flex-col gap-4 md:flex-row">
+          <div className="h-32 w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-50 md:w-48">
+            {previewImageUrl ? (
+              <img alt="" className="h-full w-full object-cover" src={previewImageUrl} />
+            ) : (
+              <div className="flex h-full items-center justify-center text-sm text-gray-400">Sin imagen</div>
+            )}
+          </div>
+          <div className="grid flex-1 grid-cols-1 gap-5 md:grid-cols-2">
+            <Field label="URL de imagen">
+              <input className={inputCls} placeholder="https://..." type="url" {...register("image_url")} />
+            </Field>
+            <Field label="URL fuente">
+              <input className={inputCls} placeholder="https://... o manual://..." {...register("source_url")} />
+            </Field>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
           <Field error={errors.title?.message} label="Título *">
             <input className={inputCls} placeholder="Título del beneficio" {...register("title")} />
@@ -307,10 +406,6 @@ export function BenefitEdit() {
             placeholder="Descripción corta generada por IA"
             {...register("ai_description")}
           />
-        </Field>
-
-        <Field label="URL de imagen">
-          <input className={inputCls} placeholder="https://..." type="url" {...register("image_url")} />
         </Field>
 
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
@@ -364,6 +459,16 @@ export function BenefitEdit() {
             </select>
           </Field>
 
+          <Field label="Método de canje">
+            <select className={selectCls} {...register("redemption_method")}>
+              {REDEMPTION_METHOD_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+
           <Field label="Estado">
             <select className={selectCls} {...register("status")}>
               {STATUS_OPTIONS.map((o) => (
@@ -380,6 +485,15 @@ export function BenefitEdit() {
 
           <Field label="Fecha de vencimiento">
             <input className={inputCls} type="date" {...register("ends_at")} />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          <Field label="Detalles de canje JSON">
+            <textarea className={`${inputCls} min-h-24 resize-y font-mono`} {...register("redemption_details")} />
+          </Field>
+          <Field label="Reglas JSON">
+            <textarea className={`${inputCls} min-h-24 resize-y font-mono`} {...register("benefit_rules")} />
           </Field>
         </div>
 
@@ -401,7 +515,18 @@ export function BenefitEdit() {
 
           {!isNew && (
             <button
-              className="rounded-lg border border-red-200 px-5 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
+              className="rounded-lg border border-amber-300 px-5 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-60"
+              disabled={saving}
+              onClick={handleExpire}
+              type="button"
+            >
+              Expirar beneficio
+            </button>
+          )}
+
+          {!isNew && (
+            <button
+              className="ml-auto rounded-lg border border-red-200 px-5 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
               disabled={deleting}
               onClick={handleDelete}
               type="button"
