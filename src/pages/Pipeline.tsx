@@ -1,24 +1,11 @@
 import { useState } from "react";
-import { getLocationPipelineHeaders } from "../lib/pipelineSecret";
 import { supabase } from "../lib/supabase";
+import { inputCls as inputBase } from "../lib/styles";
+import { useIssuers } from "../lib/useIssuers";
 
 type Tab = "reprocess" | "ai_descriptions" | "locations";
 
-const ISSUERS = ["", "bancochile", "entel", "falabella", "itau", "santander", "tenpo", "wom"] as const;
-
-const ISSUER_LABELS: Record<string, string> = {
-  "": "— todos los emisores —",
-  bancochile: "Banco de Chile",
-  entel: "Entel",
-  falabella: "Falabella",
-  itau: "Itaú",
-  santander: "Santander",
-  tenpo: "Tenpo",
-  wom: "WOM",
-};
-
-const inputCls =
-  "rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 w-full";
+const inputCls = `${inputBase} w-full`;
 const selectCls = `${inputCls} bg-white`;
 
 async function getToken(): Promise<string | null> {
@@ -26,18 +13,22 @@ async function getToken(): Promise<string | null> {
   return data.session?.access_token ?? null;
 }
 
-// ---------- Publicar pendientes ----------
+function IssuerSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const { issuers } = useIssuers();
+  return (
+    <select className={selectCls} onChange={(e) => onChange(e.target.value)} value={value}>
+      <option value="">— todos los emisores —</option>
+      {issuers.map(({ slug, name }) => (
+        <option key={slug} value={slug}>{name}</option>
+      ))}
+    </select>
+  );
+}
 
-const BENEFIT_STATES: { value: string; label: string; description: string }[] = [
-  { value: "needs_review", label: "Pendientes de clasificar", description: "Scraped sin categoría ni canal asignado aún" },
-  { value: "failed", label: "Con errores anteriores", description: "Intentos de publicación que fallaron" },
-  { value: "pending", label: "Listos para publicar", description: "Clasificados y esperando publicación" },
-  { value: "published", label: "Ya publicados (facts-only)", description: "Revisa facts de merchant sin forzar enrichment si force está apagado" },
-];
+// ---------- Publicar pendientes ----------
 
 function ReprocessTab() {
   const [issuerSlug, setIssuerSlug] = useState("");
-  const [statuses, setStatuses] = useState<string[]>(["needs_review", "failed", "pending"]);
   const [limit, setLimit] = useState("100");
   const [dryRun, setDryRun] = useState(true);
   const [force, setForce] = useState(false);
@@ -45,19 +36,14 @@ function ReprocessTab() {
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  function toggleStatus(s: string) {
-    setStatuses((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
-  }
-
   async function run() {
-    if (statuses.length === 0) { setError("Selecciona al menos un tipo de beneficio."); return; }
     setLoading(true);
     setResult(null);
     setError(null);
     const token = await getToken();
     if (!token) { setError("No autenticado."); setLoading(false); return; }
 
-    const body: Record<string, unknown> = { dryRun, force, limit: Number(limit), status: statuses };
+    const body: Record<string, unknown> = { dryRun, force, limit: Number(limit) };
     if (issuerSlug) body.issuerSlug = issuerSlug;
 
     const { data, error: fnError } = await supabase.functions.invoke("run-reprocess", {
@@ -73,17 +59,13 @@ function ReprocessTab() {
   return (
     <div className="flex flex-col gap-6">
       <p className="text-sm text-gray-500">
-        Toma beneficios scraped y los publica en la app. Útil para procesar lo que quedó pendiente o corregir errores del pipeline.
+        Avanza todo lo que está pendiente de publicar. Las direcciones pendientes se resuelven automáticamente.
       </p>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="flex flex-col gap-1">
           <label className="text-sm font-medium text-gray-700">Emisor</label>
-          <select className={selectCls} onChange={(e) => setIssuerSlug(e.target.value)} value={issuerSlug}>
-            {ISSUERS.map((s) => (
-              <option key={s} value={s}>{ISSUER_LABELS[s] ?? s}</option>
-            ))}
-          </select>
+          <IssuerSelect onChange={setIssuerSlug} value={issuerSlug} />
         </div>
 
         <div className="flex flex-col gap-1">
@@ -100,25 +82,34 @@ function ReprocessTab() {
       </div>
 
       <div className="flex flex-col gap-3">
-        <p className="text-sm font-medium text-gray-700">¿Cuáles beneficios?</p>
+        <p className="text-sm font-medium text-gray-700">Modo</p>
         <div className="flex flex-col gap-2">
-          {BENEFIT_STATES.map((s) => (
-            <label
-              key={s.value}
-              className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 bg-white p-3 hover:bg-gray-50"
-            >
-              <input
-                checked={statuses.includes(s.value)}
-                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-teal-600"
-                onChange={() => toggleStatus(s.value)}
-                type="checkbox"
-              />
-              <div>
-                <p className="text-sm font-medium text-gray-800">{s.label}</p>
-                <p className="text-xs text-gray-500">{s.description}</p>
-              </div>
-            </label>
-          ))}
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 bg-white p-3 hover:bg-gray-50">
+            <input
+              checked={!force}
+              className="mt-0.5 h-4 w-4 border-gray-300 text-teal-600"
+              name="reprocess-mode"
+              onChange={() => setForce(false)}
+              type="radio"
+            />
+            <div>
+              <p className="text-sm font-medium text-gray-800">Continuar pendientes</p>
+              <p className="text-xs text-gray-500">Solo procesa las etapas que faltan; salta lo ya avanzado.</p>
+            </div>
+          </label>
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 bg-white p-3 hover:bg-gray-50">
+            <input
+              checked={force}
+              className="mt-0.5 h-4 w-4 border-gray-300 text-teal-600"
+              name="reprocess-mode"
+              onChange={() => setForce(true)}
+              type="radio"
+            />
+            <div>
+              <p className="text-sm font-medium text-gray-800">Rehacer desde cero</p>
+              <p className="text-xs text-gray-500">Pisa lo avanzado: re-enrichment, re-embedding y re-publicación.</p>
+            </div>
+          </label>
         </div>
       </div>
 
@@ -133,18 +124,6 @@ function ReprocessTab() {
           <div>
             <p className="text-sm font-medium text-gray-800">Solo previsualizar candidatos</p>
             <p className="text-xs text-gray-500">Dispara el workflow en dry-run para ver cuántos raws procesaría.</p>
-          </div>
-        </label>
-        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 bg-white p-3 hover:bg-gray-50">
-          <input
-            checked={force}
-            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-teal-600"
-            onChange={(e) => setForce(e.target.checked)}
-            type="checkbox"
-          />
-          <div>
-            <p className="text-sm font-medium text-gray-800">Forzar pipeline completo</p>
-            <p className="text-xs text-gray-500">Con publicados, mantener apagado para facts-only; encender para re-enrichment y re-publicación.</p>
           </div>
         </label>
       </div>
@@ -222,11 +201,7 @@ function AiDescriptionsTab() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="flex flex-col gap-1">
           <label className="text-sm font-medium text-gray-700">Emisor</label>
-          <select className={selectCls} onChange={(e) => setIssuerSlug(e.target.value)} value={issuerSlug}>
-            {ISSUERS.map((s) => (
-              <option key={s} value={s}>{ISSUER_LABELS[s] ?? s}</option>
-            ))}
-          </select>
+          <IssuerSelect onChange={setIssuerSlug} value={issuerSlug} />
         </div>
 
         <div className="flex flex-col gap-1">
@@ -293,15 +268,6 @@ function LocationsTab() {
     const token = await getToken();
     if (!token) { setError("No autenticado."); setLoading(false); return; }
 
-    let headers: Record<string, string>;
-    try {
-      headers = getLocationPipelineHeaders(token);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo configurar el pipeline.");
-      setLoading(false);
-      return;
-    }
-
     const body = {
       concurrency: Number(concurrency),
       dryRun,
@@ -311,7 +277,7 @@ function LocationsTab() {
 
     const { data, error: fnError } = await supabase.functions.invoke("refresh-merchant-locations", {
       body,
-      headers,
+      headers: { Authorization: `Bearer ${token}` },
     });
 
     setLoading(false);

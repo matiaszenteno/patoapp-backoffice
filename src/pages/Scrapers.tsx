@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-
-const ISSUERS = ["bancochile", "entel", "falabella", "itau", "santander", "tenpo", "wom"] as const;
-type IssuerSlug = (typeof ISSUERS)[number];
+import { useIssuers } from "../lib/useIssuers";
 
 type ScraperRun = {
   issuer_slug: string;
@@ -45,6 +43,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export function Scrapers() {
+  const { issuers } = useIssuers();
   const [lastRuns, setLastRuns] = useState<Record<string, ScraperRun>>({});
   const [runStates, setRunStates] = useState<Record<string, RunState>>({});
   const [processMode, setProcessMode] = useState<"changed_only" | "force_pipeline">("changed_only");
@@ -65,7 +64,7 @@ export function Scrapers() {
       });
   }, []);
 
-  async function triggerScraper(issuerSlug: IssuerSlug) {
+  async function triggerScraper(issuerSlug: string) {
     setRunStates((s) => ({ ...s, [issuerSlug]: { loading: true, result: null } }));
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token;
@@ -88,8 +87,8 @@ export function Scrapers() {
 
   async function triggerAll() {
     setTriggeringAll(true);
-    for (const issuer of ISSUERS) {
-      await triggerScraper(issuer);
+    for (const issuer of issuers) {
+      await triggerScraper(issuer.slug);
     }
     setTriggeringAll(false);
   }
@@ -138,12 +137,12 @@ export function Scrapers() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {ISSUERS.map((issuer) => {
-              const run = lastRuns[issuer];
-              const state = runStates[issuer];
+            {issuers.map(({ slug, name }) => {
+              const run = lastRuns[slug];
+              const state = runStates[slug];
               return (
-                <tr key={issuer} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium text-gray-900">{issuer}</td>
+                <tr key={slug} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 font-medium text-gray-900">{name}</td>
                   <td className="px-4 py-3 text-gray-500">{formatDate(run?.created_at ?? null)}</td>
                   <td className="px-4 py-3">
                     {run ? <StatusBadge status={run.status} /> : <span className="text-gray-400">—</span>}
@@ -155,8 +154,8 @@ export function Scrapers() {
                       <button
                         className="rounded-md bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-gray-700 disabled:opacity-60"
                         disabled={state?.loading}
-                        onClick={() => triggerScraper(issuer)}
-                        title={`Ejecuta scrapers/${issuer}.py --live --write en GitHub Actions`}
+                        onClick={() => triggerScraper(slug)}
+                        title={`Ejecuta scrapers/${slug}.py --live --write en GitHub Actions`}
                         type="button"
                       >
                         {state?.loading ? "Disparando..." : "Correr scraper"}
