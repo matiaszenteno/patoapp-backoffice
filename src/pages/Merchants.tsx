@@ -10,12 +10,18 @@ type LocationRow = {
   address: string;
   latitude: string;
   longitude: string;
+  source: string;
 };
 
 type MerchantRow = {
   id: string;
+  addresses_resolved_at: string | null;
+  image_url: string | null;
   name: string;
+  normalized_name: string;
   location_count: number;
+  location_sources: Record<string, number>;
+  scraped_addresses: Array<{ address?: string; captured_at?: string; source?: string }>;
 };
 
 const DEFAULT_LAT = -33.4489;
@@ -109,7 +115,7 @@ function LocationEditor({
           source: "manual",
           source_reference: crypto.randomUUID(),
         })
-        .select("id, label, address, latitude, longitude")
+        .select("id, label, address, latitude, longitude, source")
         .single();
 
       setSaving(false);
@@ -122,6 +128,7 @@ function LocationEditor({
           address: (data.address as string) ?? "",
           latitude: String(data.latitude ?? ""),
           longitude: String(data.longitude ?? ""),
+          source: (data.source as string) ?? "manual",
         });
         setSuccess(true);
       }
@@ -150,6 +157,13 @@ function LocationEditor({
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-4">
+      {!isNew && (
+        <div>
+          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+            {draft.source}
+          </span>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1">
           <label className="text-xs font-medium text-gray-600">Nombre del local</label>
@@ -239,8 +253,15 @@ function LocationEditor({
 
 function MerchantCard({ merchant }: { merchant: MerchantRow }) {
   const [expanded, setExpanded] = useState(false);
+  const [draftMerchant, setDraftMerchant] = useState({
+    image_url: merchant.image_url ?? "",
+    name: merchant.name,
+    normalized_name: merchant.normalized_name,
+  });
   const [locations, setLocations] = useState<LocationRow[] | null>(null);
   const [loadingLocs, setLoadingLocs] = useState(false);
+  const [merchantSaving, setMerchantSaving] = useState(false);
+  const [merchantResult, setMerchantResult] = useState<string | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
   const [opLoading, setOpLoading] = useState(false);
   const [opResult, setOpResult] = useState<{ ok?: boolean; runUrl?: string; error?: string } | null>(null);
@@ -252,6 +273,7 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
     address: "",
     latitude: String(DEFAULT_LAT),
     longitude: String(DEFAULT_LNG),
+    source: "manual",
   };
 
   const handleExpand = async () => {
@@ -260,7 +282,7 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
     setLoadingLocs(true);
     const { data } = await supabase
       .from("merchant_locations")
-      .select("id, label, address, latitude, longitude")
+      .select("id, label, address, latitude, longitude, source")
       .eq("merchant_id", merchant.id)
       .order("label", { ascending: true, nullsFirst: false });
 
@@ -273,6 +295,7 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
           address: (l.address as string) ?? "",
           latitude: String(l.latitude ?? ""),
           longitude: String(l.longitude ?? ""),
+          source: (l.source as string) ?? "manual",
         })),
       );
     }
@@ -296,6 +319,27 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
   const handleDeleted = (id: string) => {
     setLocations((prev) => (prev ?? []).filter((l) => l.id !== id));
     setLocCount((c) => Math.max(0, c - 1));
+  };
+
+  const handleSaveMerchant = async () => {
+    const name = draftMerchant.name.trim();
+    const normalizedName = draftMerchant.normalized_name.trim();
+    if (!name || !normalizedName) {
+      setMerchantResult("Nombre y normalized_name son requeridos.");
+      return;
+    }
+    setMerchantSaving(true);
+    setMerchantResult(null);
+    const { error } = await supabase
+      .from("merchants")
+      .update({
+        image_url: draftMerchant.image_url.trim() || null,
+        name,
+        normalized_name: normalizedName,
+      })
+      .eq("id", merchant.id);
+    setMerchantSaving(false);
+    setMerchantResult(error ? error.message : "Merchant guardado.");
   };
 
   const handleActualizarUbicaciones = async () => {
@@ -338,7 +382,19 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
         onClick={handleExpand}
         type="button"
       >
-        <span className="font-medium text-gray-900">{merchant.name}</span>
+        <span className="flex min-w-0 items-center gap-3">
+          {merchant.image_url ? (
+            <img alt="" className="h-9 w-9 rounded-md border border-gray-100 object-cover" src={merchant.image_url} />
+          ) : (
+            <span className="flex h-9 w-9 items-center justify-center rounded-md bg-gray-100 text-xs text-gray-400">
+              —
+            </span>
+          )}
+          <span className="min-w-0">
+            <span className="block truncate font-medium text-gray-900">{merchant.name}</span>
+            <span className="block truncate text-xs text-gray-400">{merchant.normalized_name}</span>
+          </span>
+        </span>
         <div className="flex items-center gap-3">
           <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
             {locCount} {locCount === 1 ? "ubicación" : "ubicaciones"}
@@ -350,6 +406,80 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
       {expanded && (
         <div className={`border-t p-5 ${expanded ? "border-teal-100" : "border-gray-100"}`}>
           <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-4 rounded-lg border border-gray-100 bg-gray-50 p-4">
+              <h3 className="text-sm font-semibold text-gray-700">Datos del merchant</h3>
+              <div className="flex flex-col gap-4 md:flex-row">
+                <div className="h-24 w-32 overflow-hidden rounded-lg border border-gray-200 bg-white">
+                  {draftMerchant.image_url.trim() ? (
+                    <img alt="" className="h-full w-full object-cover" src={draftMerchant.image_url.trim()} />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-xs text-gray-400">Sin foto</div>
+                  )}
+                </div>
+                <div className="grid flex-1 grid-cols-1 gap-3 md:grid-cols-2">
+                  <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
+                    Nombre
+                    <input
+                      className={inputCls}
+                      onChange={(e) => setDraftMerchant((d) => ({ ...d, name: e.target.value }))}
+                      value={draftMerchant.name}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
+                    Normalized name
+                    <input
+                      className={inputCls}
+                      onChange={(e) => setDraftMerchant((d) => ({ ...d, normalized_name: e.target.value }))}
+                      value={draftMerchant.normalized_name}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs font-medium text-gray-600 md:col-span-2">
+                    URL de imagen
+                    <input
+                      className={inputCls}
+                      onChange={(e) => setDraftMerchant((d) => ({ ...d, image_url: e.target.value }))}
+                      placeholder="https://..."
+                      value={draftMerchant.image_url}
+                    />
+                  </label>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                <span>addresses_resolved_at: {merchant.addresses_resolved_at ? new Date(merchant.addresses_resolved_at).toLocaleString("es-CL") : "pendiente"}</span>
+                {Object.entries(merchant.location_sources).map(([source, count]) => (
+                  <span className="rounded-full bg-white px-2 py-0.5" key={source}>{source}: {count}</span>
+                ))}
+              </div>
+              {merchant.scraped_addresses.length > 0 && (
+                <div className="rounded-lg bg-white p-3">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Direcciones scrapeadas</p>
+                  <div className="flex flex-col gap-1">
+                    {merchant.scraped_addresses.map((entry, index) => (
+                      <div className="text-xs text-gray-600" key={`${entry.address ?? index}-${index}`}>
+                        {entry.address ?? "—"}
+                        {entry.source ? <span className="ml-2 text-gray-400">({entry.source})</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="flex items-center gap-3">
+                <button
+                  className="rounded-lg bg-teal-700 px-4 py-1.5 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+                  disabled={merchantSaving}
+                  onClick={handleSaveMerchant}
+                  type="button"
+                >
+                  {merchantSaving ? "Guardando..." : "Guardar merchant"}
+                </button>
+                {merchantResult && (
+                  <span className={`text-xs ${merchantResult.includes("guardado") ? "text-emerald-700" : "text-red-600"}`}>
+                    {merchantResult}
+                  </span>
+                )}
+              </div>
+            </div>
+
             {/* Ubicaciones */}
             <div className="flex flex-col gap-3">
               <h3 className="text-sm font-semibold text-gray-700">Ubicaciones</h3>
@@ -446,15 +576,30 @@ export function Merchants() {
   useEffect(() => {
     supabase
       .from("merchants")
-      .select("id, name, merchant_locations(id)")
+      .select("id, name, normalized_name, image_url, scraped_addresses, addresses_resolved_at, merchant_locations(id,source)")
       .order("name")
       .then(({ data }) => {
         if (!data) return;
-        const rows = data.map((m) => ({
+        const rows = data.map((m) => {
+          const locations = Array.isArray(m.merchant_locations) ? (m.merchant_locations as Array<{ source?: string | null }>) : [];
+          const locationSources = locations.reduce<Record<string, number>>((acc, loc) => {
+            const source = loc.source || "manual";
+            acc[source] = (acc[source] ?? 0) + 1;
+            return acc;
+          }, {});
+          return {
           id: m.id as string,
+          addresses_resolved_at: m.addresses_resolved_at as string | null,
+          image_url: m.image_url as string | null,
           name: m.name as string,
-          location_count: Array.isArray(m.merchant_locations) ? (m.merchant_locations as unknown[]).length : 0,
-        }));
+          normalized_name: m.normalized_name as string,
+          location_count: locations.length,
+          location_sources: locationSources,
+          scraped_addresses: Array.isArray(m.scraped_addresses)
+            ? (m.scraped_addresses as MerchantRow["scraped_addresses"])
+            : [],
+        };
+        });
         setMerchants(rows);
         setFiltered(rows);
         setLoading(false);
@@ -463,7 +608,9 @@ export function Merchants() {
 
   useEffect(() => {
     const q = query.trim().toLowerCase();
-    setFiltered(q ? merchants.filter((m) => m.name.toLowerCase().includes(q)) : merchants);
+    setFiltered(q ? merchants.filter((m) =>
+      m.name.toLowerCase().includes(q) || m.normalized_name.toLowerCase().includes(q)
+    ) : merchants);
   }, [query, merchants]);
 
   return (

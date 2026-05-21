@@ -6,9 +6,13 @@ const PAGE_SIZE = 20;
 
 type BenefitRow = {
   id: string;
+  image_url: string | null;
   title: string;
+  category_name: string | null;
+  merchant_image_url: string | null;
   merchant_name: string | null;
   issuer_name: string | null;
+  source_url: string | null;
   status: string;
   ends_at: string | null;
 };
@@ -27,7 +31,7 @@ export function BenefitsList() {
 
     let q = supabase
       .from("benefits")
-      .select("id, title, status, ends_at, issuers(name), merchants(name)")
+      .select("id, title, image_url, source_url, status, ends_at, issuers(name), merchants(name,image_url), categories(name)")
       .order("updated_at", { ascending: false })
       .range(pageIndex * PAGE_SIZE, (pageIndex + 1) * PAGE_SIZE - 1);
 
@@ -46,9 +50,13 @@ export function BenefitsList() {
 
     const rows = data.map((b) => ({
       id: b.id as string,
+      image_url: b.image_url as string | null,
       title: b.title as string,
+      category_name: (b.categories as unknown as { name: string } | null)?.name ?? null,
+      merchant_image_url: (b.merchants as unknown as { image_url: string | null } | null)?.image_url ?? null,
       merchant_name: (b.merchants as unknown as { name: string } | null)?.name ?? null,
       issuer_name: (b.issuers as unknown as { name: string } | null)?.name ?? null,
+      source_url: b.source_url as string | null,
       status: b.status as string,
       ends_at: b.ends_at as string | null,
     }));
@@ -98,8 +106,10 @@ export function BenefitsList() {
         <table className="w-full text-sm">
           <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
             <tr>
+              <th className="px-4 py-3">Foto</th>
               <th className="px-4 py-3">Merchant</th>
               <th className="px-4 py-3">Título</th>
+              <th className="px-4 py-3">Categoría</th>
               <th className="px-4 py-3">Emisor</th>
               <th className="px-4 py-3">Vence</th>
               <th className="px-4 py-3">Estado</th>
@@ -112,12 +122,29 @@ export function BenefitsList() {
                 key={b.id}
                 onClick={() => navigate(`/benefits/${b.id}`)}
               >
+                <td className="px-4 py-3">
+                  {b.image_url || b.merchant_image_url ? (
+                    <img
+                      alt=""
+                      className="h-12 w-16 rounded-md border border-gray-100 object-cover"
+                      src={b.image_url ?? b.merchant_image_url ?? ""}
+                    />
+                  ) : (
+                    <div className="flex h-12 w-16 items-center justify-center rounded-md border border-dashed border-gray-200 text-xs text-gray-300">
+                      —
+                    </div>
+                  )}
+                </td>
                 <td className="px-4 py-3 font-medium text-gray-900">
                   {b.merchant_name ?? "—"}
                 </td>
                 <td className="max-w-xs px-4 py-3 text-gray-700">
                   <span className="line-clamp-1">{b.title}</span>
+                  {b.source_url ? (
+                    <span className="block truncate text-xs text-gray-400">{b.source_url}</span>
+                  ) : null}
                 </td>
+                <td className="px-4 py-3 text-gray-500">{b.category_name ?? "—"}</td>
                 <td className="px-4 py-3 text-gray-500">{b.issuer_name ?? "—"}</td>
                 <td className="px-4 py-3 text-gray-500">
                   {b.ends_at ? b.ends_at.substring(0, 10) : "—"}
@@ -137,7 +164,7 @@ export function BenefitsList() {
             ))}
             {!loading && benefits.length === 0 && (
               <tr>
-                <td className="px-4 py-8 text-center text-gray-400" colSpan={5}>
+                <td className="px-4 py-8 text-center text-gray-400" colSpan={7}>
                   Sin resultados
                 </td>
               </tr>

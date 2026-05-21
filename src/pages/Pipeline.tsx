@@ -32,12 +32,15 @@ const BENEFIT_STATES: { value: string; label: string; description: string }[] = 
   { value: "needs_review", label: "Pendientes de clasificar", description: "Scraped sin categoría ni canal asignado aún" },
   { value: "failed", label: "Con errores anteriores", description: "Intentos de publicación que fallaron" },
   { value: "pending", label: "Listos para publicar", description: "Clasificados y esperando publicación" },
+  { value: "published", label: "Ya publicados (facts-only)", description: "Revisa facts de merchant sin forzar enrichment si force está apagado" },
 ];
 
 function ReprocessTab() {
   const [issuerSlug, setIssuerSlug] = useState("");
   const [statuses, setStatuses] = useState<string[]>(["needs_review", "failed", "pending"]);
   const [limit, setLimit] = useState("100");
+  const [dryRun, setDryRun] = useState(true);
+  const [force, setForce] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +57,7 @@ function ReprocessTab() {
     const token = await getToken();
     if (!token) { setError("No autenticado."); setLoading(false); return; }
 
-    const body: Record<string, unknown> = { limit: Number(limit), status: statuses };
+    const body: Record<string, unknown> = { dryRun, force, limit: Number(limit), status: statuses };
     if (issuerSlug) body.issuerSlug = issuerSlug;
 
     const { data, error: fnError } = await supabase.functions.invoke("run-reprocess", {
@@ -119,6 +122,33 @@ function ReprocessTab() {
         </div>
       </div>
 
+      <div className="flex flex-col gap-2">
+        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 bg-white p-3 hover:bg-gray-50">
+          <input
+            checked={dryRun}
+            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-teal-600"
+            onChange={(e) => setDryRun(e.target.checked)}
+            type="checkbox"
+          />
+          <div>
+            <p className="text-sm font-medium text-gray-800">Solo previsualizar candidatos</p>
+            <p className="text-xs text-gray-500">Dispara el workflow en dry-run para ver cuántos raws procesaría.</p>
+          </div>
+        </label>
+        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 bg-white p-3 hover:bg-gray-50">
+          <input
+            checked={force}
+            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-teal-600"
+            onChange={(e) => setForce(e.target.checked)}
+            type="checkbox"
+          />
+          <div>
+            <p className="text-sm font-medium text-gray-800">Forzar pipeline completo</p>
+            <p className="text-xs text-gray-500">Con publicados, mantener apagado para facts-only; encender para re-enrichment y re-publicación.</p>
+          </div>
+        </label>
+      </div>
+
       <div>
         <button
           className="rounded-lg bg-teal-700 px-5 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
@@ -126,7 +156,7 @@ function ReprocessTab() {
           onClick={run}
           type="button"
         >
-          {loading ? "Publicando..." : "Publicar ahora"}
+          {loading ? "Procesando..." : dryRun ? "Previsualizar" : "Procesar ahora"}
         </button>
         {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
         {result && (
