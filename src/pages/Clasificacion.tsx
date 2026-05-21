@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { inputCls, selectCls } from "../lib/styles";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -182,9 +184,6 @@ const REQUIRED_PUBLICATION_FIELDS = [
 
 // ─── Styling helpers ──────────────────────────────────────────────────────────
 
-const inputCls =
-  "rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500";
-const selectCls = `${inputCls} bg-white`;
 const blockerInputCls =
   "rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-sm outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-400";
 const blockerSelectCls = `${blockerInputCls} bg-amber-50`;
@@ -489,6 +488,8 @@ function BenefitRulesFields({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function Clasificacion() {
+  const [searchParams] = useSearchParams();
+  const rawParam = searchParams.get("raw");
   const [rows, setRows] = useState<RawRow[]>([]);
   const [statusFilters, setStatusFilters] = useState<string[]>(["needs_review", "failed"]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -508,28 +509,32 @@ export function Clasificacion() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
 
   useEffect(() => {
-    if (statusFilters.length === 0) {
+    // Deep-link `?raw=<id>`: carga ese raw puntual sin importar el filtro de estado
+    // (lo usa BenefitEdit para corregir un beneficio scraped ya publicado).
+    if (!rawParam && statusFilters.length === 0) {
       setRows([]);
       setPageLoading(false);
       return;
     }
     setPageLoading(true);
-    Promise.all([
-      supabase.auth.getSession(),
-      supabase
-        .from("scraped_benefits_raw")
-        .select(
-          "id, issuer_slug, source_url, raw_payload, scraped_at, processing_status, benefit_id",
-        )
-        .in("processing_status", statusFilters)
-        .order("scraped_at", { ascending: false }),
-    ]).then(([{ data: sessionData }, { data: rowData, error }]) => {
-      setUserEmail(sessionData.session?.user.email ?? null);
-      if (error) setPageError(error.message);
-      else setRows((rowData ?? []) as RawRow[]);
-      setPageLoading(false);
-    });
-  }, [statusFilters]);
+    const select =
+      "id, issuer_slug, source_url, raw_payload, scraped_at, processing_status, benefit_id";
+    const rowsQuery = rawParam
+      ? supabase.from("scraped_benefits_raw").select(select).eq("id", rawParam)
+      : supabase
+          .from("scraped_benefits_raw")
+          .select(select)
+          .in("processing_status", statusFilters)
+          .order("scraped_at", { ascending: false });
+    Promise.all([supabase.auth.getSession(), rowsQuery]).then(
+      ([{ data: sessionData }, { data: rowData, error }]) => {
+        setUserEmail(sessionData.session?.user.email ?? null);
+        if (error) setPageError(error.message);
+        else setRows((rowData ?? []) as RawRow[]);
+        setPageLoading(false);
+      },
+    );
+  }, [statusFilters, rawParam]);
 
   const loadCardData = async (row: RawRow) => {
     setLoadingCards((prev) => new Set(prev).add(row.id));

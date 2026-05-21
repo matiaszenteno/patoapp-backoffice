@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { useNavigate, useParams } from "react-router-dom";
 import { z } from "zod";
 import { supabase } from "../lib/supabase";
+import { inputCls, selectCls } from "../lib/styles";
 
 type SelectOption = { value: string; label: string };
 type MerchantOption = SelectOption & { imageUrl: string | null };
@@ -86,10 +87,6 @@ function Field({
   );
 }
 
-const inputCls =
-  "rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500";
-const selectCls = `${inputCls} bg-white`;
-
 function parseJsonObject(value: string | undefined, label: string): Record<string, unknown> {
   const trimmed = value?.trim();
   if (!trimmed) return {};
@@ -111,6 +108,8 @@ export function BenefitEdit() {
   const [loadingData, setLoadingData] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Raw ligado: si existe, el beneficio viene de scraping y el pipeline lo posee.
+  const [rawBenefitId, setRawBenefitId] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [opLoading, setOpLoading] = useState<Record<string, boolean>>({});
@@ -215,6 +214,12 @@ export function BenefitEdit() {
 
       if (!isNew && id) {
         await loadBenefitDetails(id);
+        const { data: rawRow } = await supabase
+          .from("scraped_benefits_raw")
+          .select("id")
+          .eq("benefit_id", id)
+          .maybeSingle();
+        setRawBenefitId(rawRow?.id ?? null);
         setLoadingData(false);
       }
     };
@@ -222,7 +227,12 @@ export function BenefitEdit() {
     load();
   }, [id, isNew, reset]);
 
+  // Beneficio de scraping: el pipeline es dueño de sus campos. Se edita read-only
+  // y las correcciones de contenido van por el flujo de Clasificación (sobre el raw).
+  const isScraped = !isNew && rawBenefitId !== null;
+
   const onSubmit = handleSubmit(async (values) => {
+    if (isScraped) return; // defensivo: los scraped son read-only.
     setSaving(true);
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -307,16 +317,30 @@ export function BenefitEdit() {
     }));
   }
 
+  async function invokeManageBenefit(action: "delete" | "expire") {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) return { error: "No autenticado." };
+    const { data, error } = await supabase.functions.invoke("manage-benefit", {
+      body: { action, benefitId: id },
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (error) return { error: error.message };
+    const payload = data as { error?: string };
+    if (payload?.error) return { error: payload.error };
+    return {};
+  }
+
   const handleDelete = async () => {
     if (!id) return;
     if (!confirm("¿Eliminar este beneficio? Esta acción no se puede deshacer.")) return;
 
     setDeleting(true);
-    const { error } = await supabase.from("benefits").delete().eq("id", id);
+    const { error } = await invokeManageBenefit("delete");
     setDeleting(false);
 
     if (error) {
-      setErrorMsg(error.message);
+      setErrorMsg(error);
     } else {
       navigate("/benefits");
     }
@@ -327,10 +351,10 @@ export function BenefitEdit() {
     if (!confirm("¿Expirar este beneficio ahora? Dejará de mostrarse como activo.")) return;
     setSaving(true);
     setErrorMsg(null);
-    const { error } = await supabase.from("benefits").update({ status: "expired" }).eq("id", id);
+    const { error } = await invokeManageBenefit("expire");
     setSaving(false);
     if (error) {
-      setErrorMsg(error.message);
+      setErrorMsg(error);
     } else {
       await loadBenefitDetails(id);
       setSuccessMsg("Beneficio expirado.");
@@ -360,6 +384,23 @@ export function BenefitEdit() {
         className="flex flex-col gap-5 rounded-xl border border-gray-200 bg-white p-6"
         onSubmit={onSubmit}
       >
+        {isScraped && (
+          <div className="flex flex-col gap-2 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <p>
+              Este beneficio viene de scraping; el pipeline es dueño de sus campos. Para corregir
+              su contenido, hazlo como corrección sobre el raw (así el pipeline lo respeta y republica).
+            </p>
+            <button
+              className="self-start rounded-md border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+              onClick={() => navigate(`/clasificacion?raw=${rawBenefitId}`)}
+              type="button"
+            >
+              Corregir en Clasificación →
+            </button>
+          </div>
+        )}
+
+        <fieldset className="contents" disabled={isScraped}>
         <div className="flex flex-col gap-4 md:flex-row">
           <div className="h-32 w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-50 md:w-48">
             {previewImageUrl ? (
@@ -496,6 +537,7 @@ export function BenefitEdit() {
             <textarea className={`${inputCls} min-h-24 resize-y font-mono`} {...register("benefit_rules")} />
           </Field>
         </div>
+        </fieldset>
 
         {errorMsg ? (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{errorMsg}</p>
@@ -505,13 +547,15 @@ export function BenefitEdit() {
         ) : null}
 
         <div className="flex items-center gap-3 border-t border-gray-100 pt-4">
-          <button
-            className="rounded-lg bg-teal-700 px-5 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
-            disabled={saving}
-            type="submit"
-          >
-            {saving ? "Guardando..." : isNew ? "Crear beneficio" : "Guardar cambios"}
-          </button>
+          {!isScraped && (
+            <button
+              className="rounded-lg bg-teal-700 px-5 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+              disabled={saving}
+              type="submit"
+            >
+              {saving ? "Guardando..." : isNew ? "Crear beneficio" : "Guardar cambios"}
+            </button>
+          )}
 
           {!isNew && (
             <button
@@ -546,7 +590,7 @@ export function BenefitEdit() {
                 className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
                 disabled={opLoading["ai_desc"]}
                 onClick={() => runOp("ai_desc", "run-refresh-ai-descriptions", { benefitIds: [id], force: true })}
-                title="Regenera la descripción corta de IA para este beneficio usando GPT-4o mini"
+                title="Regenera la descripción corta de IA para este beneficio"
                 type="button"
               >
                 {opLoading["ai_desc"] ? "Generando..." : "Regenerar descripción con IA"}
