@@ -97,26 +97,26 @@ export function Scrapers() {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Scrapers</h1>
+          <h1 className="text-xl font-bold text-gray-900">Extracción</h1>
           <p className="mt-0.5 text-sm text-gray-500">
-            Dispara scrapers por emisor vía GitHub Actions. El workflow puede tardar 5–15 minutos.
+            Extrae beneficios por emisor y los ingresa al proceso de publicación. Puede tardar 5–15 minutos.
           </p>
         </div>
         <div className="flex items-center gap-3">
           <select
             className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700"
             onChange={(e) => setProcessMode(e.target.value as "changed_only" | "force_pipeline")}
-            title="changed_only respeta idempotencia; force_pipeline re-enriquece publicados idénticos"
+            title="Solo cambios: extrae y procesa solo los beneficios que cambiaron desde la última vez. Reprocesar todo: vuelve a analizar todos los beneficios con IA, ignorando lo ya hecho. Útil tras cambios en el redactor o la lógica de enriquecimiento."
             value={processMode}
           >
             <option value="changed_only">Solo cambios</option>
-            <option value="force_pipeline">Forzar pipeline</option>
+            <option value="force_pipeline">Reprocesar todo</option>
           </select>
           <button
             className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
             disabled={triggeringAll}
             onClick={triggerAll}
-            title="Dispara el scraper de todos los emisores en secuencia"
+            title="Extrae beneficios de todos los emisores en secuencia"
             type="button"
           >
             {triggeringAll ? "Disparando..." : "Correr todos"}
@@ -129,10 +129,10 @@ export function Scrapers() {
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50 text-left">
               <th className="px-4 py-3 font-medium text-gray-600">Emisor</th>
-              <th className="px-4 py-3 font-medium text-gray-600">Último run</th>
+              <th className="px-4 py-3 font-medium text-gray-600">Última ejecución</th>
               <th className="px-4 py-3 font-medium text-gray-600">Estado</th>
               <th className="px-4 py-3 font-medium text-gray-600">Encontrados</th>
-              <th className="px-4 py-3 font-medium text-gray-600">Insertados</th>
+              <th className="px-4 py-3 font-medium text-gray-600">Guardados</th>
               <th className="px-4 py-3 font-medium text-gray-600">Acción</th>
             </tr>
           </thead>
@@ -155,10 +155,10 @@ export function Scrapers() {
                         className="rounded-md bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-gray-700 disabled:opacity-60"
                         disabled={state?.loading}
                         onClick={() => triggerScraper(slug)}
-                        title={`Ejecuta scrapers/${slug}.py --live --write en GitHub Actions`}
+                        title={`Inicia la extracción de beneficios de ${name}`}
                         type="button"
                       >
-                        {state?.loading ? "Disparando..." : "Correr scraper"}
+                        {state?.loading ? "Iniciando..." : "Extraer beneficios"}
                       </button>
                       {state?.result?.triggered && (
                         <a
@@ -167,7 +167,7 @@ export function Scrapers() {
                           rel="noreferrer"
                           target="_blank"
                         >
-                          Ver en GitHub Actions →
+                          Ver progreso →
                         </a>
                       )}
                       {state?.result?.error && (
