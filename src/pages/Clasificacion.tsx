@@ -263,7 +263,7 @@ function getUnresolvedCorrectionBlockers(blockers: string[], vals: FormState | n
       case "needs_manual_review":
         return !vals.resolve_needs_review;
       default:
-        return true;
+        return false;
     }
   });
 }
