@@ -471,6 +471,39 @@ export function Clasificacion() {
   const loadCardData = async (row: RawRow) => {
     setLoadingCards((prev) => new Set(prev).add(row.id));
 
+    const fallbackCardData: CardData = {
+      blockers: [],
+      lowConfidenceReasons: [],
+      aiValues: {},
+      existingCorrection: null,
+      existingNote: null,
+      runId: row.run_id ?? null,
+      runError: null,
+      runDetails: null,
+    };
+    const fallbackForm: FormState = {
+      title: String(row.raw_payload?.title ?? row.raw_payload?.name ?? ""),
+      description_raw: String(row.raw_payload?.description ?? ""),
+      image_url: String(row.raw_payload?.image_url ?? ""),
+      category_slug: "",
+      channel: "",
+      ai_description: "",
+      resolve_needs_review: false,
+      value_type: "",
+      value: "",
+      redemption_method: "",
+      rd_code: "",
+      rd_url: "",
+      br_tope_mensual: "",
+      br_tope_diario: "",
+      br_dias_mode: "all",
+      br_dias_validos: [],
+      br_min_compra: "",
+      br_cuotas_minimas: "",
+      note: "",
+    };
+
+    try {
     const benefitQuery = row.benefit_id
       ? supabase.from("benefits").select("title, description_raw, image_url, channel, ai_description, value_type, value, categories(slug)").eq("id", row.benefit_id).maybeSingle()
       : Promise.resolve({ data: null });
@@ -565,7 +598,12 @@ export function Clasificacion() {
       note: existingNote ?? "",
     };
     setFormValues((prev) => ({ ...prev, [row.id]: initial }));
-    setLoadingCards((prev) => { const s = new Set(prev); s.delete(row.id); return s; });
+    } catch {
+      setCardData((prev) => ({ ...prev, [row.id]: fallbackCardData }));
+      setFormValues((prev) => ({ ...prev, [row.id]: fallbackForm }));
+    } finally {
+      setLoadingCards((prev) => { const s = new Set(prev); s.delete(row.id); return s; });
+    }
   };
 
   const handleSelect = (row: RawRow) => {
