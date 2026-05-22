@@ -508,21 +508,31 @@ export function Clasificacion() {
       ? supabase.from("benefits").select("title, description_raw, image_url, channel, ai_description, value_type, value, categories(slug)").eq("id", row.benefit_id).maybeSingle()
       : Promise.resolve({ data: null });
 
-    const [eventsRes, latestRunEventRes, enrichmentEventsRes, correctionRes, benefitRes] = await Promise.all([
-      supabase.from("benefit_processing_events").select("output_payload, run_id").eq("raw_benefit_id", row.id).eq("processor", "publication_readiness").order("created_at", { ascending: false }).limit(1).maybeSingle(),
-      supabase.from("benefit_processing_events").select("run_id, created_at").eq("raw_benefit_id", row.id).not("run_id", "is", null).order("created_at", { ascending: false }).limit(1).maybeSingle(),
-      supabase.from("benefit_processing_events").select("processor, output_payload, created_at, confidence").eq("raw_benefit_id", row.id).eq("stage", "enrichment").eq("status", "completed").order("created_at", { ascending: false }).limit(20),
+    const [allEventsRes, correctionRes, benefitRes] = await Promise.all([
+      supabase.from("benefit_processing_events")
+        .select("processor, output_payload, run_id, created_at, stage, status, confidence")
+        .eq("raw_benefit_id", row.id)
+        .order("created_at", { ascending: false })
+        .limit(30),
       supabase.from("raw_benefit_corrections").select("corrected_fields, note").eq("raw_benefit_id", row.id).maybeSingle(),
       Promise.race([benefitQuery, new Promise<{ data: null }>((resolve) => setTimeout(() => resolve({ data: null }), 4000))]),
     ]);
 
-    const blockers = ((eventsRes.data?.output_payload as Record<string, unknown> | null)?.blockers as string[]) ?? [];
-    const b = benefitRes.data as Record<string, unknown> | null;
-    const enrichmentEvents = (enrichmentEventsRes.data ?? []) as Array<{
+    const allEvents = (allEventsRes.data ?? []) as Array<{
       confidence?: unknown;
+      created_at: string;
       output_payload: Record<string, unknown> | null;
       processor: string;
+      run_id: string | null;
+      stage?: string | null;
+      status?: string | null;
     }>;
+    const readinessEvent = allEvents.find((e) => e.processor === "publication_readiness");
+    const latestRunEvent = allEvents.find((e) => e.run_id != null);
+    const enrichmentEvents = allEvents.filter((e) => e.stage === "enrichment" && e.status === "completed").slice(0, 20);
+
+    const blockers = ((readinessEvent?.output_payload as Record<string, unknown> | null)?.blockers as string[]) ?? [];
+    const b = benefitRes.data as Record<string, unknown> | null;
     const enrichmentOutputs = enrichmentEvents
       .reduce<Record<string, unknown>>((acc, event) => ({ ...acc, ...(event.output_payload ?? {}) }), {});
     const lowConfidenceReasons = Array.from(new Set(enrichmentEvents
@@ -547,8 +557,8 @@ export function Clasificacion() {
     const existing = (correctionRes.data?.corrected_fields as Record<string, unknown> | null) ?? null;
     const existingNote = (correctionRes.data?.note as string | null) ?? null;
     const runId = row.run_id
-      ?? (latestRunEventRes.data?.run_id as string | null | undefined)
-      ?? (eventsRes.data?.run_id as string | null | undefined)
+      ?? (latestRunEvent?.run_id as string | null | undefined)
+      ?? (readinessEvent?.run_id as string | null | undefined)
       ?? null;
     const { data: runDetailsData, error: runDetailsError } = runId
       ? await supabase
@@ -666,8 +676,12 @@ export function Clasificacion() {
   };
 
   const handleSave = async (rawId: string) => {
+    try {
     const vals = formValues[rawId];
-    if (!vals) return;
+    if (!vals || !userEmail) {
+      setSaveResult((prev) => ({ ...prev, [rawId]: { ok: false, msg: "Sesión no disponible. Recarga la página." } }));
+      return;
+    }
 
     const currentBlockers = cardData[rawId]?.blockers ?? [];
     const unresolvedBeforeSave = getUnresolvedCorrectionBlockers(currentBlockers, vals);
@@ -692,7 +706,8 @@ export function Clasificacion() {
     if (vals.ai_description.trim()) cf.ai_description = vals.ai_description.trim();
     if (vals.resolve_needs_review) cf.needs_review = false;
     if (vals.value_type) cf.value_type = vals.value_type;
-    if (vals.value.trim()) cf.value = Number(vals.value);
+    const parsedValue = Number(vals.value);
+    if (vals.value.trim() && isFinite(parsedValue)) cf.value = parsedValue;
     if (vals.redemption_method) cf.redemption_method = vals.redemption_method;
     const rd = serializeRedemptionDetails(vals.redemption_method, vals.rd_code, vals.rd_url);
     if (rd) cf.redemption_details = rd;
@@ -733,15 +748,24 @@ export function Clasificacion() {
           body: { rawBenefitId: rawId, force: true },
           headers: { Authorization: `Bearer ${token}` },
         });
+        const runUrl = (runData as Record<string, unknown> | null)?.runUrl as string | undefined;
+        const reprocessError = runError?.message ?? (!runUrl ? "Sin respuesta del servidor." : undefined);
         setReprocessResult((prev) => ({
           ...prev,
-          [rawId]: { loading: false, runUrl: (runData as Record<string, unknown> | null)?.runUrl as string | undefined, error: runError?.message },
+          [rawId]: { loading: false, runUrl, error: reprocessError },
         }));
       } else {
         setReprocessResult((prev) => ({ ...prev, [rawId]: { loading: false, error: "No autenticado." } }));
       }
     } else {
       setSaveResult((prev) => ({ ...prev, [rawId]: { ok: true, msg: "Corrección guardada." } }));
+    }
+    } catch (err) {
+      setSaving((prev) => { const s = new Set(prev); s.delete(rawId); return s; });
+      setSaveResult((prev) => ({
+        ...prev,
+        [rawId]: { ok: false, msg: `Error inesperado: ${err instanceof Error ? err.message : String(err)}` },
+      }));
     }
   };
 
@@ -765,7 +789,7 @@ export function Clasificacion() {
   const correctedFields = data?.existingCorrection ?? null;
   const unresolvedLabels = unresolvedBlockers.map((b) => BLOCKER_LABELS[b] ?? b);
   const lowConfidenceReasons = data?.lowConfidenceReasons ?? [];
-  const canSaveCorrection = !!vals && !!data && unresolvedBlockers.length === 0;
+  const canSaveCorrection = !!vals && !!data && !!userEmail && unresolvedBlockers.length === 0;
 
   const sourceFor = (field: keyof FormState, aiValue?: string, rawValue?: unknown) =>
     vals ? getCurrentValueSource({ aiValue, correctedFields, currentValue: vals[field] as string | boolean, field, rawValue }) : undefined;
@@ -1208,22 +1232,6 @@ export function Clasificacion() {
                       </>
                       )}
 
-                      {/* Feedback messages */}
-                      {result && (
-                        <p className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-600 mb-3">
-                          {result.msg}
-                        </p>
-                      )}
-                      {reprocessResult[selectedRow.id] && (
-                        <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-600 mb-3">
-                          {reprocessResult[selectedRow.id].loading ? "Disparando reproceso…" :
-                            reprocessResult[selectedRow.id].error ? `Error: ${reprocessResult[selectedRow.id].error}` :
-                            reprocessResult[selectedRow.id].runUrl ? (
-                              <>Reproceso disparado. <a className="underline hover:text-stone-900" href={reprocessResult[selectedRow.id].runUrl} rel="noreferrer" target="_blank">Ver en GitHub Actions →</a></>
-                            ) : "Reproceso disparado."
-                          }
-                        </div>
-                      )}
                     </div>
                   )}
                 </>
@@ -1231,11 +1239,26 @@ export function Clasificacion() {
             </div>
 
             {/* Bottom bar */}
-            <div className="shrink-0 border-t border-stone-200 bg-white px-8 py-3 flex items-center justify-between">
-              <div className="text-[11px] text-stone-400">
-                {unresolvedBlockers.length > 0
-                  ? `${unresolvedBlockers.length} pendiente${unresolvedBlockers.length > 1 ? "s" : ""} por completar antes de guardar`
-                  : selectedId && data ? "Listo para publicar" : ""}
+            <div className="shrink-0 border-t border-stone-200 bg-white px-8 py-3 flex items-center justify-between gap-4">
+              <div className="min-w-0 flex-1 text-[11px]">
+                {result ? (
+                  <span className={result.ok ? "text-emerald-700" : "text-red-700"}>{result.msg}</span>
+                ) : reprocessResult[selectedRow?.id ?? ""] ? (
+                  <span className={reprocessResult[selectedRow!.id].error ? "text-red-700" : "text-emerald-700"}>
+                    {reprocessResult[selectedRow!.id].loading ? "Disparando reproceso…" :
+                      reprocessResult[selectedRow!.id].error ? `Error reproceso: ${reprocessResult[selectedRow!.id].error}` :
+                      reprocessResult[selectedRow!.id].runUrl ? (
+                        <>Reproceso disparado. <a className="underline" href={reprocessResult[selectedRow!.id].runUrl} rel="noreferrer" target="_blank">Ver en GitHub Actions →</a></>
+                      ) : "Reproceso disparado."
+                    }
+                  </span>
+                ) : (
+                  <span className="text-stone-400">
+                    {unresolvedBlockers.length > 0
+                      ? `${unresolvedBlockers.length} pendiente${unresolvedBlockers.length > 1 ? "s" : ""} por completar antes de guardar`
+                      : selectedId && data ? "Listo para publicar" : ""}
+                  </span>
+                )}
               </div>
               <div className="flex gap-2 items-center">
                 {selectedIdx < rows.length - 1 && (
