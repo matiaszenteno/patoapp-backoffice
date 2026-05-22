@@ -471,14 +471,16 @@ export function Clasificacion() {
   const loadCardData = async (row: RawRow) => {
     setLoadingCards((prev) => new Set(prev).add(row.id));
 
+    const benefitQuery = row.benefit_id
+      ? supabase.from("benefits").select("title, description_raw, image_url, channel, ai_description, value_type, value, categories(slug)").eq("id", row.benefit_id).maybeSingle()
+      : Promise.resolve({ data: null });
+
     const [eventsRes, latestRunEventRes, enrichmentEventsRes, correctionRes, benefitRes] = await Promise.all([
       supabase.from("benefit_processing_events").select("output_payload, run_id").eq("raw_benefit_id", row.id).eq("processor", "publication_readiness").order("created_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("benefit_processing_events").select("run_id, created_at").eq("raw_benefit_id", row.id).not("run_id", "is", null).order("created_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("benefit_processing_events").select("processor, output_payload, created_at, confidence").eq("raw_benefit_id", row.id).eq("stage", "enrichment").eq("status", "completed").order("created_at", { ascending: false }).limit(20),
       supabase.from("raw_benefit_corrections").select("corrected_fields, note").eq("raw_benefit_id", row.id).maybeSingle(),
-      row.benefit_id
-        ? supabase.from("benefits").select("title, description_raw, image_url, channel, ai_description, value_type, value, categories(slug)").eq("id", row.benefit_id).maybeSingle()
-        : Promise.resolve({ data: null }),
+      Promise.race([benefitQuery, new Promise<{ data: null }>((resolve) => setTimeout(() => resolve({ data: null }), 4000))]),
     ]);
 
     const blockers = ((eventsRes.data?.output_payload as Record<string, unknown> | null)?.blockers as string[]) ?? [];
