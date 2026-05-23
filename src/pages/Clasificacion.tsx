@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { getFreshAccessToken } from "../lib/auth";
 import { inputCls, inputReqCls } from "../lib/styles";
 import { useIssuers } from "../lib/useIssuers";
 
@@ -15,6 +16,7 @@ type RawRow = {
   processing_status: string | null;
   benefit_id: string | null;
   run_id: string | null;
+  publication_blockers: string[] | null;
 };
 
 type AiValues = {
@@ -30,7 +32,7 @@ type AiValues = {
 
 type CardData = {
   blockers: string[];
-  lowConfidenceReasons: string[];
+  aiConfidence: AiConfidence[];
   aiValues: AiValues;
   existingCorrection: Record<string, unknown> | null;
   existingNote: string | null;
@@ -49,6 +51,20 @@ type RunDetails = {
   finished_at: string | null;
 };
 
+type AiConfidence = {
+  confidence: number | null;
+  description: string;
+  label: string;
+  processor: string;
+  reason: string | null;
+};
+
+type ReprocessResponse = {
+  error?: string;
+  runUrl?: string;
+  triggered?: boolean;
+};
+
 type FormState = {
   title: string;
   description_raw: string;
@@ -62,8 +78,8 @@ type FormState = {
   redemption_method: string;
   rd_code: string;
   rd_url: string;
-  br_tope_mensual: string;
-  br_tope_diario: string;
+  br_max_cap: string;
+  br_frequency: string;
   br_dias_mode: "all" | "specific";
   br_dias_validos: string[];
   br_min_compra: string;
@@ -135,6 +151,20 @@ const DIAS_OPTIONS = [
   "domingo",
 ];
 
+const DAY_LABEL_TO_INDEX: Record<string, number> = {
+  domingo: 0,
+  lunes: 1,
+  martes: 2,
+  miércoles: 3,
+  jueves: 4,
+  viernes: 5,
+  sábado: 6,
+};
+
+const DAY_INDEX_TO_LABEL = Object.fromEntries(
+  Object.entries(DAY_LABEL_TO_INDEX).map(([label, index]) => [String(index), label]),
+) as Record<string, string>;
+
 const BLOCKER_FIELD_MAP: Record<string, keyof FormState> = {
   title_missing: "title",
   description_missing: "description_raw",
@@ -160,12 +190,26 @@ const BLOCKER_LABELS: Record<string, string> = {
 };
 
 const LOW_CONFIDENCE_THRESHOLD = 0.65;
+const RULES_REVIEW_CONFIDENCE_THRESHOLD = 0.6;
 
-const CONFIDENCE_LABELS: Record<string, string> = {
-  benefit_category_classification: "categoría",
-  benefit_core_extraction: "canal o valor",
-  benefit_rules_extraction: "reglas del beneficio",
-  benefit_ai_description: "descripción IA",
+const CONFIDENCE_META: Record<string, { description: string; label: string }> = {
+  benefit_category_classification: {
+    description: "Categoría normalizada.",
+    label: "Clasificación de categoría",
+  },
+  benefit_core_extraction: {
+    description: "Canal, valor, método de canje y fechas.",
+    label: "Extracción core",
+  },
+  benefit_rules_extraction: {
+    description: "Topes, frecuencia, días, compra mínima y cuotas.",
+    label: "Extracción de reglas",
+  },
+};
+
+const REVIEW_REASON_BY_BLOCKER: Record<string, string> = {
+  needs_manual_review: "La extracción de reglas quedó bajo el umbral de confianza y requiere validación humana.",
+  benefit_expired: "El beneficio asociado ya expiró y requiere decisión manual.",
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -184,24 +228,37 @@ function deserializeRedemptionDetails(rd: Record<string, unknown> | null | undef
 
 function serializeBenefitRules(vals: FormState): Record<string, unknown> | null {
   const rules: Record<string, unknown> = {};
-  if (vals.br_tope_mensual.trim()) rules.tope_mensual = Number(vals.br_tope_mensual);
-  if (vals.br_tope_diario.trim()) rules.tope_diario = Number(vals.br_tope_diario);
-  if (vals.br_dias_mode === "specific" && vals.br_dias_validos.length) rules.dias_validos = vals.br_dias_validos;
-  if (vals.br_min_compra.trim()) rules.min_compra = Number(vals.br_min_compra);
-  if (vals.br_cuotas_minimas.trim()) rules.cuotas_minimas = Number(vals.br_cuotas_minimas);
+  const maxCap = Number(vals.br_max_cap);
+  const minPurchase = Number(vals.br_min_compra);
+  const installmentsCount = Number(vals.br_cuotas_minimas);
+  if (vals.br_max_cap.trim() && Number.isFinite(maxCap)) rules.max_cap = maxCap;
+  if (vals.br_frequency) rules.frequency = vals.br_frequency;
+  if (vals.br_dias_mode === "specific" && vals.br_dias_validos.length) {
+    rules.days = vals.br_dias_validos
+      .map((dia) => DAY_LABEL_TO_INDEX[dia])
+      .filter((dia) => dia !== undefined);
+  }
+  if (vals.br_min_compra.trim() && Number.isFinite(minPurchase)) rules.min_purchase = minPurchase;
+  if (vals.br_cuotas_minimas.trim() && Number.isFinite(installmentsCount)) rules.installments_count = installmentsCount;
   return Object.keys(rules).length ? rules : null;
 }
 
 function deserializeBenefitRules(br: Record<string, unknown> | null | undefined) {
-  if (!br) return { tope_mensual: "", tope_diario: "", dias_mode: "all" as const, dias_validos: [] as string[], min_compra: "", cuotas_minimas: "" };
-  const diasValidos = Array.isArray(br.dias_validos) ? (br.dias_validos as string[]) : [];
+  if (!br) return { max_cap: "", frequency: "", dias_mode: "all" as const, dias_validos: [] as string[], min_compra: "", cuotas_minimas: "" };
+  const canonicalDays = Array.isArray(br.days)
+    ? br.days.map((day) => DAY_INDEX_TO_LABEL[String(day)]).filter(Boolean)
+    : [];
+  const legacyDays = Array.isArray(br.dias_validos) ? (br.dias_validos as string[]) : [];
+  const diasValidos = canonicalDays.length ? canonicalDays : legacyDays;
+  const legacyMaxCap = br.tope_mensual ?? br.tope_diario;
+  const legacyFrequency = br.tope_mensual != null ? "monthly" : br.tope_diario != null ? "daily" : "";
   return {
-    tope_mensual: br.tope_mensual != null ? String(br.tope_mensual) : "",
-    tope_diario: br.tope_diario != null ? String(br.tope_diario) : "",
+    max_cap: br.max_cap != null ? String(br.max_cap) : legacyMaxCap != null ? String(legacyMaxCap) : "",
+    frequency: br.frequency != null ? String(br.frequency) : legacyFrequency,
     dias_mode: diasValidos.length > 0 ? "specific" as const : "all" as const,
     dias_validos: diasValidos,
-    min_compra: br.min_compra != null ? String(br.min_compra) : "",
-    cuotas_minimas: br.cuotas_minimas != null ? String(br.cuotas_minimas) : "",
+    min_compra: br.min_purchase != null ? String(br.min_purchase) : br.min_compra != null ? String(br.min_compra) : "",
+    cuotas_minimas: br.installments_count != null ? String(br.installments_count) : br.cuotas_minimas != null ? String(br.cuotas_minimas) : "",
   };
 }
 
@@ -243,6 +300,41 @@ function getConfidence(event: { confidence?: unknown; output_payload: Record<str
   return direct ?? fromOutput;
 }
 
+function getAiReason(output: Record<string, unknown> | null) {
+  if (!output) return null;
+  const reason = output.reason ?? output.review_reason ?? output.rationale ?? output.explanation;
+  return typeof reason === "string" && reason.trim() ? reason.trim() : null;
+}
+
+function formatConfidence(value: number | null) {
+  if (value == null) return "sin dato";
+  return `${Math.round(value * 100)}%`;
+}
+
+function getLatestAiConfidence(events: Array<{
+  confidence?: unknown;
+  output_payload: Record<string, unknown> | null;
+  processor: string;
+}>) {
+  const seen = new Set<string>();
+  const items: AiConfidence[] = [];
+  for (const event of events) {
+    if (seen.has(event.processor)) continue;
+    const meta = CONFIDENCE_META[event.processor];
+    const confidence = getConfidence(event);
+    if (!meta || confidence == null) continue;
+    seen.add(event.processor);
+    items.push({
+      confidence,
+      description: meta.description,
+      label: meta.label,
+      processor: event.processor,
+      reason: getAiReason(event.output_payload),
+    });
+  }
+  return items;
+}
+
 function getUnresolvedCorrectionBlockers(blockers: string[], vals: FormState | null) {
   if (!vals) return blockers;
 
@@ -266,6 +358,28 @@ function getUnresolvedCorrectionBlockers(blockers: string[], vals: FormState | n
         return false;
     }
   });
+}
+
+async function getFunctionErrorMessage(error: unknown) {
+  const context = (error as { context?: unknown }).context;
+  if (context instanceof Response) {
+    const body = await context.clone().json().catch(() => null) as { error?: unknown } | null;
+    if (typeof body?.error === "string") return body.error;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function triggerRawReprocess(rawId: string, token: string) {
+  const { data, error } = await supabase.functions.invoke("run-reprocess", {
+    body: { rawBenefitId: rawId, force: true },
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const response = (data ?? null) as ReprocessResponse | null;
+  if (error) throw new Error(response?.error ?? await getFunctionErrorMessage(error));
+  if (response?.triggered !== true) {
+    throw new Error(response?.error ?? "El servicio no confirmó que el beneficio se está reprocesando.");
+  }
+  return response;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -361,11 +475,16 @@ function BenefitRulesFields({ vals, onChange }: {
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Field label="Tope mensual ($)" hint="opcional">
-          <input className={compactInputCls} min={0} onChange={(e) => onChange("br_tope_mensual", e.target.value)} placeholder="ej: 5000" type="number" value={vals.br_tope_mensual} />
+        <Field label="Tope ($)" hint="opcional">
+          <input className={compactInputCls} min={0} onChange={(e) => onChange("br_max_cap", e.target.value)} placeholder="ej: 5000" type="number" value={vals.br_max_cap} />
         </Field>
-        <Field label="Tope diario ($)" hint="opcional">
-          <input className={compactInputCls} min={0} onChange={(e) => onChange("br_tope_diario", e.target.value)} placeholder="ej: 1000" type="number" value={vals.br_tope_diario} />
+        <Field label="Frecuencia" hint="opcional">
+          <select className={compactSelectCls} onChange={(e) => onChange("br_frequency", e.target.value)} value={vals.br_frequency}>
+            <option value="">Sin frecuencia</option>
+            <option value="daily">Diaria</option>
+            <option value="weekly">Semanal</option>
+            <option value="monthly">Mensual</option>
+          </select>
         </Field>
         <Field label="Compra mínima ($)" hint="opcional">
           <input className={compactInputCls} min={0} onChange={(e) => onChange("br_min_compra", e.target.value)} placeholder="ej: 20000" type="number" value={vals.br_min_compra} />
@@ -436,9 +555,10 @@ export function Clasificacion() {
   const [ignoring, setIgnoring] = useState<Set<string>>(new Set());
   const [saveResult, setSaveResult] = useState<Record<string, { ok: boolean; msg: string }>>({});
   const [reprocessResult, setReprocessResult] = useState<Record<string, { loading: boolean; runUrl?: string; error?: string }>>({});
+  const [savedToast, setSavedToast] = useState<{ merchant: string; runUrl?: string } | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userIdentifier, setUserIdentifier] = useState<string | null>(null);
   const [showOptional, setShowOptional] = useState(false);
 
   useEffect(() => {
@@ -446,12 +566,12 @@ export function Clasificacion() {
       setRows([]); setPageLoading(false); return;
     }
     setPageLoading(true);
-    const select = "id, issuer_slug, source_url, raw_payload, scraped_at, processing_status, benefit_id, run_id";
+    const select = "id, issuer_slug, source_url, raw_payload, scraped_at, processing_status, benefit_id, run_id, publication_blockers";
     const rowsQuery = rawParam
       ? supabase.from("scraped_benefits_raw").select(select).eq("id", rawParam)
       : supabase.from("scraped_benefits_raw").select(select).in("processing_status", statusFilters).order("scraped_at", { ascending: false });
     Promise.all([supabase.auth.getSession(), rowsQuery]).then(([{ data: sessionData }, { data: rowData, error }]) => {
-      setUserEmail(sessionData.session?.user.email ?? null);
+      setUserIdentifier(sessionData.session?.user.email ?? sessionData.session?.user.id ?? null);
       if (error) setPageError(error.message);
       else setRows((rowData ?? []) as RawRow[]);
       setPageLoading(false);
@@ -473,7 +593,7 @@ export function Clasificacion() {
 
     const fallbackCardData: CardData = {
       blockers: [],
-      lowConfidenceReasons: [],
+      aiConfidence: [],
       aiValues: {},
       existingCorrection: null,
       existingNote: null,
@@ -494,8 +614,8 @@ export function Clasificacion() {
       redemption_method: "",
       rd_code: "",
       rd_url: "",
-      br_tope_mensual: "",
-      br_tope_diario: "",
+      br_max_cap: "",
+      br_frequency: "",
       br_dias_mode: "all",
       br_dias_validos: [],
       br_min_compra: "",
@@ -508,14 +628,7 @@ export function Clasificacion() {
       ? supabase.from("benefits").select("title, description_raw, image_url, channel, ai_description, value_type, value, categories(slug)").eq("id", row.benefit_id).maybeSingle()
       : Promise.resolve({ data: null });
 
-    const [readinessEventRes, latestRunEventRes, enrichmentEventsRes, correctionRes, benefitRes] = await Promise.all([
-      supabase.from("benefit_processing_events")
-        .select("output_payload, run_id")
-        .eq("raw_benefit_id", row.id)
-        .eq("processor", "publication_readiness")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+    const [latestRunEventRes, enrichmentEventsRes, correctionRes, benefitRes] = await Promise.all([
       supabase.from("benefit_processing_events")
         .select("run_id, created_at")
         .eq("raw_benefit_id", row.id)
@@ -544,16 +657,11 @@ export function Clasificacion() {
       status?: string | null;
     }>;
 
-    const blockers = ((readinessEventRes.data?.output_payload as Record<string, unknown> | null)?.blockers as string[]) ?? [];
+    const blockers = row.publication_blockers ?? [];
     const b = benefitRes.data as Record<string, unknown> | null;
     const enrichmentOutputs = enrichmentEvents
       .reduce<Record<string, unknown>>((acc, event) => ({ ...acc, ...(event.output_payload ?? {}) }), {});
-    const lowConfidenceReasons = Array.from(new Set(enrichmentEvents
-      .filter((event) => {
-        const confidence = getConfidence(event);
-        return confidence != null && confidence < LOW_CONFIDENCE_THRESHOLD;
-      })
-      .map((event) => CONFIDENCE_LABELS[event.processor] ?? event.processor)));
+    const aiConfidence = getLatestAiConfidence(enrichmentEvents);
     const payload = row.raw_payload ?? {};
     const nestedPayload = (payload.raw_payload && typeof payload.raw_payload === "object") ? (payload.raw_payload as Record<string, unknown>) : {};
     const aiValues: AiValues = {
@@ -571,7 +679,6 @@ export function Clasificacion() {
     const existingNote = (correctionRes.data?.note as string | null) ?? null;
     const runId = row.run_id
       ?? (latestRunEventRes.data?.run_id as string | null | undefined)
-      ?? (readinessEventRes.data?.run_id as string | null | undefined)
       ?? null;
     const { data: runDetailsData, error: runDetailsError } = runId
       ? await supabase
@@ -586,7 +693,7 @@ export function Clasificacion() {
       ...prev,
       [row.id]: {
         blockers,
-        lowConfidenceReasons,
+        aiConfidence,
         aiValues,
         existingCorrection: existing,
         existingNote,
@@ -606,14 +713,14 @@ export function Clasificacion() {
       category_slug: String(existing?.category_slug ?? aiValues.category_slug ?? ""),
       channel: String(existing?.channel ?? aiValues.channel ?? ""),
       ai_description: String(existing?.ai_description ?? aiValues.ai_description ?? ""),
-      resolve_needs_review: existing?.needs_review === false,
+      resolve_needs_review: existing?.needs_review === false || blockers.includes("needs_manual_review"),
       value_type: String(existing?.value_type ?? aiValues.value_type ?? ""),
       value: String(existing?.value ?? aiValues.value ?? ""),
       redemption_method: String(existing?.redemption_method ?? ""),
       rd_code: rd.code,
       rd_url: rd.url,
-      br_tope_mensual: br.tope_mensual,
-      br_tope_diario: br.tope_diario,
+      br_max_cap: br.max_cap,
+      br_frequency: br.frequency,
       br_dias_mode: br.dias_mode,
       br_dias_validos: br.dias_validos,
       br_min_compra: br.min_compra,
@@ -652,6 +759,15 @@ export function Clasificacion() {
     if (nextRow && !cardData[nextRow.id]) loadCardData(nextRow);
   };
 
+  const clearReprocessResult = (rawId: string) => {
+    setReprocessResult((prev) => {
+      if (!(rawId in prev)) return prev;
+      const next = { ...prev };
+      delete next[rawId];
+      return next;
+    });
+  };
+
   const setField = <K extends keyof FormState>(rawId: string, field: K, val: FormState[K]) => {
     setFormValues((prev) => ({ ...prev, [rawId]: { ...prev[rawId], [field]: val } }));
   };
@@ -665,7 +781,7 @@ export function Clasificacion() {
     setIgnoring((prev) => new Set(prev).add(row.id));
     const { data: updatedRows, error } = await supabase
       .from("scraped_benefits_raw")
-      .update({ processing_status: "ignored" })
+      .update({ processing_status: "ignored", publication_blockers: [] })
       .eq("id", row.id)
       .select("id, processing_status");
     setIgnoring((prev) => { const s = new Set(prev); s.delete(row.id); return s; });
@@ -682,99 +798,107 @@ export function Clasificacion() {
 
     setSaveResult((prev) => ({ ...prev, [row.id]: { ok: true, msg: "Raw ignorado." } }));
     if (statusFilters.includes("ignored")) {
-      setRows((prev) => prev.map((current) => current.id === row.id ? { ...current, processing_status: "ignored" } : current));
+      setRows((prev) => prev.map((current) => current.id === row.id ? { ...current, processing_status: "ignored", publication_blockers: [] } : current));
     } else {
       removeFromQueue(row.id);
     }
   };
 
   const handleSave = async (rawId: string) => {
+    setSavedToast(null);
     try {
-    const vals = formValues[rawId];
-    if (!vals || !userEmail) {
-      setSaveResult((prev) => ({ ...prev, [rawId]: { ok: false, msg: "Sesión no disponible. Recarga la página." } }));
-      return;
-    }
+      clearReprocessResult(rawId);
+      const vals = formValues[rawId];
+      if (!vals) {
+        setSaveResult((prev) => ({ ...prev, [rawId]: { ok: false, msg: "Datos todavía no disponibles. Espera a que cargue la ficha." } }));
+        return;
+      }
 
-    const currentBlockers = cardData[rawId]?.blockers ?? [];
-    const unresolvedBeforeSave = getUnresolvedCorrectionBlockers(currentBlockers, vals);
-    if (unresolvedBeforeSave.length > 0) {
-      const labels = unresolvedBeforeSave.map((b) => BLOCKER_LABELS[b] ?? b).join(", ");
-      setSaveResult((prev) => ({
-        ...prev,
-        [rawId]: { ok: false, msg: `Completa lo necesario antes de guardar: ${labels}.` },
-      }));
-      return;
-    }
-
-    const cf: Record<string, unknown> = {};
-    if (vals.title.trim()) cf.title = vals.title.trim();
-    if (vals.description_raw.trim()) cf.description_raw = vals.description_raw.trim();
-    else if (vals.ai_description.trim() && cardData[rawId]?.blockers.includes("description_missing")) {
-      cf.description_raw = vals.ai_description.trim();
-    }
-    if (vals.image_url.trim()) cf.image_url = vals.image_url.trim();
-    if (vals.category_slug) cf.category_slug = vals.category_slug;
-    if (vals.channel) cf.channel = vals.channel;
-    if (vals.ai_description.trim()) cf.ai_description = vals.ai_description.trim();
-    if (vals.resolve_needs_review) cf.needs_review = false;
-    if (vals.value_type) cf.value_type = vals.value_type;
-    const parsedValue = Number(vals.value);
-    if (vals.value.trim() && isFinite(parsedValue)) cf.value = parsedValue;
-    if (vals.redemption_method) cf.redemption_method = vals.redemption_method;
-    const rd = serializeRedemptionDetails(vals.redemption_method, vals.rd_code, vals.rd_url);
-    if (rd) cf.redemption_details = rd;
-    const br = serializeBenefitRules(vals);
-    if (br) cf.benefit_rules = br;
-
-    setSaving((prev) => new Set(prev).add(rawId));
-    const { error } = await supabase.from("raw_benefit_corrections").upsert(
-      { raw_benefit_id: rawId, corrected_fields: cf, corrected_by: userEmail, note: vals.note.trim() || null },
-      { onConflict: "raw_benefit_id" },
-    );
-    setSaving((prev) => { const s = new Set(prev); s.delete(rawId); return s; });
-
-    if (error) {
-      setSaveResult((prev) => ({ ...prev, [rawId]: { ok: false, msg: error.message } }));
-      return;
-    }
-
-    const FIXABLE: Record<string, boolean> = {
-      title_missing: !cf.title,
-      description_missing: !cf.description_raw,
-      image_url_missing: !cf.image_url,
-      category_id_missing: !cf.category_slug,
-      channel_missing: !cf.channel,
-      ai_description_missing: !cf.ai_description,
-      needs_manual_review: cf.needs_review !== false,
-    };
-    const fixableInThisCard = currentBlockers.filter((b) => b in FIXABLE);
-    const stillUnresolved = fixableInThisCard.filter((b) => FIXABLE[b]);
-
-    if (fixableInThisCard.length > 0 && stillUnresolved.length === 0) {
-      setSaveResult((prev) => ({ ...prev, [rawId]: { ok: true, msg: "Corrección guardada. Disparando reproceso…" } }));
-      setReprocessResult((prev) => ({ ...prev, [rawId]: { loading: true } }));
       const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-      if (token) {
-        const { data: runData, error: runError } = await supabase.functions.invoke("run-reprocess", {
-          body: { rawBenefitId: rawId, force: true },
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const runUrl = (runData as Record<string, unknown> | null)?.runUrl as string | undefined;
-        const reprocessError = runError?.message ?? (!runUrl ? "Sin respuesta del servidor." : undefined);
+      const correctedBy = sessionData.session?.user.email ?? sessionData.session?.user.id ?? userIdentifier;
+      if (!correctedBy) {
+        setSaveResult((prev) => ({ ...prev, [rawId]: { ok: false, msg: "Sesión no disponible. Recarga la página." } }));
+        return;
+      }
+
+      const currentBlockers = cardData[rawId]?.blockers ?? [];
+      const unresolvedBeforeSave = getUnresolvedCorrectionBlockers(currentBlockers, vals);
+      if (unresolvedBeforeSave.length > 0) {
+        const labels = unresolvedBeforeSave.map((b) => BLOCKER_LABELS[b] ?? b).join(", ");
+        setSaveResult((prev) => ({
+          ...prev,
+          [rawId]: { ok: false, msg: `Completa lo necesario antes de guardar: ${labels}.` },
+        }));
+        return;
+      }
+
+      const cf: Record<string, unknown> = {};
+      if (vals.title.trim()) cf.title = vals.title.trim();
+      if (vals.description_raw.trim()) cf.description_raw = vals.description_raw.trim();
+      else if (vals.ai_description.trim() && cardData[rawId]?.blockers.includes("description_missing")) {
+        cf.description_raw = vals.ai_description.trim();
+      }
+      if (vals.image_url.trim()) cf.image_url = vals.image_url.trim();
+      if (vals.category_slug) cf.category_slug = vals.category_slug;
+      if (vals.channel) cf.channel = vals.channel;
+      if (vals.ai_description.trim()) cf.ai_description = vals.ai_description.trim();
+      const rawWasWaitingForReview = rows.find((row) => row.id === rawId)?.processing_status === "needs_review";
+      if (vals.resolve_needs_review || rawWasWaitingForReview) cf.needs_review = false;
+      if (vals.value_type) cf.value_type = vals.value_type;
+      const parsedValue = Number(vals.value);
+      if (vals.value.trim() && Number.isFinite(parsedValue)) cf.value = parsedValue;
+      if (vals.redemption_method) cf.redemption_method = vals.redemption_method;
+      const rd = serializeRedemptionDetails(vals.redemption_method, vals.rd_code, vals.rd_url);
+      if (rd) cf.redemption_details = rd;
+      const br = serializeBenefitRules(vals);
+      if (br) cf.benefit_rules = br;
+
+      setSaving((prev) => new Set(prev).add(rawId));
+      const { error } = await supabase.from("raw_benefit_corrections").upsert(
+        { raw_benefit_id: rawId, corrected_fields: cf, corrected_by: correctedBy, note: vals.note.trim() || null },
+        { onConflict: "raw_benefit_id" },
+      );
+
+      if (error) {
+        setSaving((prev) => { const s = new Set(prev); s.delete(rawId); return s; });
+        setSaveResult((prev) => ({ ...prev, [rawId]: { ok: false, msg: error.message } }));
+        return;
+      }
+
+      setSaveResult((prev) => ({ ...prev, [rawId]: { ok: true, msg: "Corrección guardada. Solicitando reproceso…" } }));
+      setReprocessResult((prev) => ({ ...prev, [rawId]: { loading: true } }));
+
+      const token = await getFreshAccessToken();
+      if (!token) {
+        setSaving((prev) => { const s = new Set(prev); s.delete(rawId); return s; });
+        setReprocessResult((prev) => ({ ...prev, [rawId]: { loading: false, error: "Sesión vencida. Recarga la página e intenta de nuevo." } }));
+        return;
+      }
+
+      const savingRow = rows.find((r) => r.id === rawId);
+      const savingPayload = savingRow?.raw_payload ?? {};
+      const savingMerchant = String(
+        savingPayload.merchant_name ?? savingPayload.merchant ?? savingPayload.title ?? savingPayload.name ?? savingRow?.source_url ?? "beneficio",
+      );
+
+      try {
+        const runData = await triggerRawReprocess(rawId, token);
+        setSavedToast({ merchant: savingMerchant, runUrl: runData.runUrl });
+        removeFromQueue(rawId);
+      } catch (reprocessError) {
         setReprocessResult((prev) => ({
           ...prev,
-          [rawId]: { loading: false, runUrl, error: reprocessError },
+          [rawId]: {
+            loading: false,
+            error: reprocessError instanceof Error ? reprocessError.message : String(reprocessError),
+          },
         }));
-      } else {
-        setReprocessResult((prev) => ({ ...prev, [rawId]: { loading: false, error: "No autenticado." } }));
+      } finally {
+        setSaving((prev) => { const s = new Set(prev); s.delete(rawId); return s; });
       }
-    } else {
-      setSaveResult((prev) => ({ ...prev, [rawId]: { ok: true, msg: "Corrección guardada." } }));
-    }
     } catch (err) {
       setSaving((prev) => { const s = new Set(prev); s.delete(rawId); return s; });
+      clearReprocessResult(rawId);
       setSaveResult((prev) => ({
         ...prev,
         [rawId]: { ok: false, msg: `Error inesperado: ${err instanceof Error ? err.message : String(err)}` },
@@ -802,8 +926,16 @@ export function Clasificacion() {
 
   const correctedFields = data?.existingCorrection ?? null;
   const unresolvedLabels = unresolvedBlockers.map((b) => BLOCKER_LABELS[b] ?? b);
-  const lowConfidenceReasons = data?.lowConfidenceReasons ?? [];
-  const canSaveCorrection = !!vals && !!data && !!userEmail && unresolvedBlockers.length === 0;
+  const aiConfidence = data?.aiConfidence ?? [];
+  const rulesConfidence = aiConfidence.find((item) => item.processor === "benefit_rules_extraction");
+  const reviewReasons = Array.from(new Set((data?.blockers ?? []).flatMap((blocker) => {
+    if (blocker === "needs_manual_review" && rulesConfidence) {
+      const reason = `La confianza de la extracción de reglas fue ${formatConfidence(rulesConfidence.confidence)}; para pasar sin revisión manual debe ser al menos ${formatConfidence(RULES_REVIEW_CONFIDENCE_THRESHOLD)}.`;
+      return rulesConfidence.reason ? `${reason} ${rulesConfidence.reason}` : reason;
+    }
+    return REVIEW_REASON_BY_BLOCKER[blocker] ?? `Falta resolver: ${BLOCKER_LABELS[blocker] ?? blocker}.`;
+  })));
+  const canSaveCorrection = !!vals && !!data && unresolvedBlockers.length === 0;
 
   const sourceFor = (field: keyof FormState, aiValue?: string, rawValue?: unknown) =>
     vals ? getCurrentValueSource({ aiValue, correctedFields, currentValue: vals[field] as string | boolean, field, rawValue }) : undefined;
@@ -824,8 +956,8 @@ export function Clasificacion() {
       vals.redemption_method,
       vals.rd_code,
       vals.rd_url,
-      vals.br_tope_mensual,
-      vals.br_tope_diario,
+      vals.br_max_cap,
+      vals.br_frequency,
       vals.br_min_compra,
       vals.br_cuotas_minimas,
       vals.note,
@@ -885,8 +1017,9 @@ export function Clasificacion() {
             const issuerName = row.issuer_slug ? issuerNameBySlug.get(row.issuer_slug) ?? row.issuer_slug : "";
             const rowData = cardData[row.id];
             const isSelected = row.id === selectedId;
-            const rowTags = rowData?.blockers.length
-              ? rowData.blockers.map((b) => BLOCKER_LABELS[b] ?? b)
+            const rowBlockers = rowData?.blockers.length ? rowData.blockers : row.publication_blockers ?? [];
+            const rowTags = rowBlockers.length
+              ? rowBlockers.map((b) => BLOCKER_LABELS[b] ?? b)
               : row.processing_status ? [row.processing_status === "needs_review" ? "needs review" : row.processing_status] : [];
             return (
               <div
@@ -927,6 +1060,24 @@ export function Clasificacion() {
 
       {/* ── Editor (right) ── */}
       <div className="min-w-0 flex-1 flex flex-col overflow-hidden bg-white">
+        {savedToast && (
+          <div className="shrink-0 border-b border-emerald-200 bg-emerald-50 px-8 py-2.5 flex items-center justify-between gap-4">
+            <span className="text-sm font-medium text-emerald-800">
+              ✓ <span className="font-semibold">{savedToast.merchant}</span> guardado — reproceso iniciado
+              {savedToast.runUrl && (
+                <> · <a className="underline" href={savedToast.runUrl} rel="noreferrer" target="_blank">Ver en GitHub Actions →</a></>
+              )}
+            </span>
+            <button
+              className="text-emerald-600 hover:text-emerald-800 text-lg leading-none"
+              onClick={() => setSavedToast(null)}
+              type="button"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         {!selectedRow ? (
           <div className="flex-1 flex items-center justify-center text-stone-300 text-sm">
             Seleccioná un beneficio de la cola
@@ -1061,19 +1212,38 @@ export function Clasificacion() {
 
                   {vals && (
                     <div className="flex flex-col gap-0">
-                      {(unresolvedLabels.length > 0 || lowConfidenceReasons.length > 0) && (
-                        <div className="mb-5 rounded-lg border border-red-200 bg-red-50/70 px-4 py-3 text-sm text-red-900">
-                          {unresolvedLabels.length > 0 && (
-                            <p>
-                              <span className="font-semibold">Pendiente para publicar:</span>{" "}
-                              {unresolvedLabels.join(", ")}.
-                            </p>
+                      {(reviewReasons.length > 0 || aiConfidence.length > 0) && (
+                        <div className="mb-4 rounded-md border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-600">
+                          {reviewReasons.length > 0 && (
+                            <div>
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Razón de revisión</p>
+                              <p className="mt-1">{reviewReasons.join(" ")}</p>
+                            </div>
                           )}
-                          {lowConfidenceReasons.length > 0 && (
-                            <p className={unresolvedLabels.length > 0 ? "mt-1 text-red-800" : "text-red-800"}>
-                              <span className="font-semibold">Confianza baja de IA:</span>{" "}
-                              revisar {lowConfidenceReasons.join(", ")} antes de publicar.
-                            </p>
+                          {aiConfidence.length > 0 && (
+                            <div className={reviewReasons.length > 0 ? "mt-2" : ""}>
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Confianza por tarea IA</p>
+                              <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                                {aiConfidence.map((item) => (
+                                  <div className="rounded-md border border-stone-200 bg-white px-2.5 py-1.5" key={item.processor}>
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span className="text-xs font-medium text-stone-700">{item.label}</span>
+                                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                                        item.confidence != null && item.confidence < LOW_CONFIDENCE_THRESHOLD
+                                          ? "bg-amber-50 text-amber-700"
+                                          : "bg-stone-100 text-stone-500"
+                                      }`}>
+                                        {formatConfidence(item.confidence)}
+                                      </span>
+                                    </div>
+                                    <p className="mt-1 text-[11px] leading-relaxed text-stone-400">{item.description}</p>
+                                    {item.reason && (
+                                      <p className="mt-1 text-[11px] leading-relaxed text-stone-500">{item.reason}</p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
                           )}
                         </div>
                       )}
@@ -1174,24 +1344,6 @@ export function Clasificacion() {
                         </div>
                       </div>
 
-                      {(blockerFields.has("resolve_needs_review") || data?.blockers.includes("needs_manual_review")) && (
-                        <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50/70 p-3 mb-3">
-                          <input
-                            checked={vals.resolve_needs_review}
-                            className="mt-0.5 h-4 w-4 accent-red-700"
-                            id={`resolve-${selectedRow.id}`}
-                            onChange={(e) => setField(selectedRow.id, "resolve_needs_review", e.target.checked)}
-                            type="checkbox"
-                          />
-                          <label className="cursor-pointer text-sm text-red-900" htmlFor={`resolve-${selectedRow.id}`}>
-                            <span className="font-medium">Resolver revisión manual</span>
-                            <span className="ml-1 text-red-700">
-                              — marcar cuando la ambigüedad o falta de confianza esté resuelta
-                            </span>
-                          </label>
-                        </div>
-                      )}
-
                       <SectionTitle
                         title="Detalles opcionales"
                         action={
@@ -1254,23 +1406,20 @@ export function Clasificacion() {
 
             {/* Bottom bar */}
             <div className="shrink-0 border-t border-stone-200 bg-white px-8 py-3 flex items-center justify-between gap-4">
-              <div className="min-w-0 flex-1 text-[11px]">
-                {selectedReprocess ? (
-                  <span className={selectedReprocess.error ? "text-red-700" : "text-emerald-700"}>
-                    {selectedReprocess.loading ? "Corrección guardada. Disparando reproceso…" :
-                      selectedReprocess.error ? `Corrección guardada. Error reproceso: ${selectedReprocess.error}` :
-                      selectedReprocess.runUrl ? (
-                        <>Corrección guardada. Reproceso disparado. <a className="underline" href={selectedReprocess.runUrl} rel="noreferrer" target="_blank">Ver en GitHub Actions →</a></>
-                      ) : "Reproceso disparado."
-                    }
+              <div className="min-w-0 flex-1 text-xs">
+                {selectedReprocess?.loading ? (
+                  <span className="text-stone-500">Guardando y solicitando reproceso…</span>
+                ) : selectedReprocess?.error ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-3 py-1.5 font-medium text-red-800">
+                    Corrección guardada, pero el reproceso falló: {selectedReprocess.error}
                   </span>
-                ) : result ? (
-                  <span className={result.ok ? "text-emerald-700" : "text-red-700"}>{result.msg}</span>
+                ) : result && !result.ok ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-3 py-1.5 font-medium text-red-800">
+                    {result.msg}
+                  </span>
                 ) : (
                   <span className="text-stone-400">
-                    {unresolvedBlockers.length > 0
-                      ? `${unresolvedBlockers.length} pendiente${unresolvedBlockers.length > 1 ? "s" : ""} por completar antes de guardar`
-                      : selectedId && data ? "Listo para publicar" : ""}
+                    {selectedId && data && unresolvedBlockers.length === 0 ? "Listo para guardar" : ""}
                   </span>
                 )}
               </div>
@@ -1291,7 +1440,7 @@ export function Clasificacion() {
                   title={!canSaveCorrection && unresolvedLabels.length > 0 ? `Completa: ${unresolvedLabels.join(", ")}` : undefined}
                   type="button"
                 >
-                  {isSaving ? "Guardando…" : "Guardar"}
+                  {isSaving ? "Guardando y reprocesando…" : "Guardar"}
                 </button>
                 <button
                   className="border border-red-200 text-red-700 hover:border-red-300 hover:bg-red-50 disabled:opacity-40 text-sm font-medium px-4 py-1.5 rounded-md transition-colors"
