@@ -36,7 +36,7 @@ function ReprocessTab() {
     setLoading(true);
     setResult(null);
     setError(null);
-    const token = await getToken();
+    const token = await getFreshAccessToken();
     if (!token) { setError("No autenticado."); setLoading(false); return; }
 
     const body: Record<string, unknown> = { dryRun, force, limit: Number(limit) };
@@ -172,7 +172,7 @@ function AiDescriptionsTab() {
     setLoading(true);
     setResult(null);
     setError(null);
-    const token = await getToken();
+    const token = await getFreshAccessToken();
     if (!token) { setError("No autenticado."); setLoading(false); return; }
 
     const body: Record<string, unknown> = { force: overwrite, limit: Number(limit) };
@@ -261,7 +261,7 @@ function LocationsTab() {
     setLoading(true);
     setResult(null);
     setError(null);
-    const token = await getToken();
+    const token = await getFreshAccessToken();
     if (!token) { setError("No autenticado."); setLoading(false); return; }
 
     const body = {
