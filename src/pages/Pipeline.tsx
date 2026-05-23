@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabase";
+import { getFreshAccessToken } from "../lib/auth";
 import { inputCls as inputBase } from "../lib/styles";
 import { useIssuers } from "../lib/useIssuers";
 
@@ -7,11 +8,6 @@ type Tab = "reprocess" | "ai_descriptions" | "locations";
 
 const inputCls = `${inputBase} w-full`;
 const selectCls = `${inputCls} bg-white`;
-
-async function getToken(): Promise<string | null> {
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token ?? null;
-}
 
 function IssuerSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const { issuers } = useIssuers();
