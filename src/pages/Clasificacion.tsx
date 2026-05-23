@@ -508,17 +508,33 @@ export function Clasificacion() {
       ? supabase.from("benefits").select("title, description_raw, image_url, channel, ai_description, value_type, value, categories(slug)").eq("id", row.benefit_id).maybeSingle()
       : Promise.resolve({ data: null });
 
-    const [allEventsRes, correctionRes, benefitRes] = await Promise.all([
+    const [readinessEventRes, latestRunEventRes, enrichmentEventsRes, correctionRes, benefitRes] = await Promise.all([
+      supabase.from("benefit_processing_events")
+        .select("output_payload, run_id")
+        .eq("raw_benefit_id", row.id)
+        .eq("processor", "publication_readiness")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase.from("benefit_processing_events")
+        .select("run_id, created_at")
+        .eq("raw_benefit_id", row.id)
+        .not("run_id", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
       supabase.from("benefit_processing_events")
         .select("processor, output_payload, run_id, created_at, stage, status, confidence")
         .eq("raw_benefit_id", row.id)
+        .eq("stage", "enrichment")
+        .eq("status", "completed")
         .order("created_at", { ascending: false })
-        .limit(30),
+        .limit(20),
       supabase.from("raw_benefit_corrections").select("corrected_fields, note").eq("raw_benefit_id", row.id).maybeSingle(),
       Promise.race([benefitQuery, new Promise<{ data: null }>((resolve) => setTimeout(() => resolve({ data: null }), 4000))]),
     ]);
 
-    const allEvents = (allEventsRes.data ?? []) as Array<{
+    const enrichmentEvents = (enrichmentEventsRes.data ?? []) as Array<{
       confidence?: unknown;
       created_at: string;
       output_payload: Record<string, unknown> | null;
@@ -527,11 +543,8 @@ export function Clasificacion() {
       stage?: string | null;
       status?: string | null;
     }>;
-    const readinessEvent = allEvents.find((e) => e.processor === "publication_readiness");
-    const latestRunEvent = allEvents.find((e) => e.run_id != null);
-    const enrichmentEvents = allEvents.filter((e) => e.stage === "enrichment" && e.status === "completed").slice(0, 20);
 
-    const blockers = ((readinessEvent?.output_payload as Record<string, unknown> | null)?.blockers as string[]) ?? [];
+    const blockers = ((readinessEventRes.data?.output_payload as Record<string, unknown> | null)?.blockers as string[]) ?? [];
     const b = benefitRes.data as Record<string, unknown> | null;
     const enrichmentOutputs = enrichmentEvents
       .reduce<Record<string, unknown>>((acc, event) => ({ ...acc, ...(event.output_payload ?? {}) }), {});
@@ -557,8 +570,8 @@ export function Clasificacion() {
     const existing = (correctionRes.data?.corrected_fields as Record<string, unknown> | null) ?? null;
     const existingNote = (correctionRes.data?.note as string | null) ?? null;
     const runId = row.run_id
-      ?? (latestRunEvent?.run_id as string | null | undefined)
-      ?? (readinessEvent?.run_id as string | null | undefined)
+      ?? (latestRunEventRes.data?.run_id as string | null | undefined)
+      ?? (readinessEventRes.data?.run_id as string | null | undefined)
       ?? null;
     const { data: runDetailsData, error: runDetailsError } = runId
       ? await supabase
@@ -778,6 +791,7 @@ export function Clasificacion() {
   const isSaving = selectedId ? saving.has(selectedId) : false;
   const isIgnoring = selectedId ? ignoring.has(selectedId) : false;
   const result = selectedId ? saveResult[selectedId] : undefined;
+  const selectedReprocess = selectedId ? reprocessResult[selectedId] : undefined;
 
   const blockerFields = new Set(
     (data?.blockers ?? []).map((b) => BLOCKER_FIELD_MAP[b]).filter(Boolean),
@@ -1241,17 +1255,17 @@ export function Clasificacion() {
             {/* Bottom bar */}
             <div className="shrink-0 border-t border-stone-200 bg-white px-8 py-3 flex items-center justify-between gap-4">
               <div className="min-w-0 flex-1 text-[11px]">
-                {result ? (
-                  <span className={result.ok ? "text-emerald-700" : "text-red-700"}>{result.msg}</span>
-                ) : reprocessResult[selectedRow?.id ?? ""] ? (
-                  <span className={reprocessResult[selectedRow!.id].error ? "text-red-700" : "text-emerald-700"}>
-                    {reprocessResult[selectedRow!.id].loading ? "Disparando reproceso…" :
-                      reprocessResult[selectedRow!.id].error ? `Error reproceso: ${reprocessResult[selectedRow!.id].error}` :
-                      reprocessResult[selectedRow!.id].runUrl ? (
-                        <>Reproceso disparado. <a className="underline" href={reprocessResult[selectedRow!.id].runUrl} rel="noreferrer" target="_blank">Ver en GitHub Actions →</a></>
+                {selectedReprocess ? (
+                  <span className={selectedReprocess.error ? "text-red-700" : "text-emerald-700"}>
+                    {selectedReprocess.loading ? "Corrección guardada. Disparando reproceso…" :
+                      selectedReprocess.error ? `Corrección guardada. Error reproceso: ${selectedReprocess.error}` :
+                      selectedReprocess.runUrl ? (
+                        <>Corrección guardada. Reproceso disparado. <a className="underline" href={selectedReprocess.runUrl} rel="noreferrer" target="_blank">Ver en GitHub Actions →</a></>
                       ) : "Reproceso disparado."
                     }
                   </span>
+                ) : result ? (
+                  <span className={result.ok ? "text-emerald-700" : "text-red-700"}>{result.msg}</span>
                 ) : (
                   <span className="text-stone-400">
                     {unresolvedBlockers.length > 0
