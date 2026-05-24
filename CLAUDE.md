@@ -11,7 +11,7 @@ actualizar ubicaciones. Solo accesible para emails de desarrolladores.
 - Leaflet + react-leaflet para el editor de ubicaciones de merchants.
 - Supabase JS client directo (sin capa API ni server actions).
 
-## Comandos
+## Comandos y deploy
 
 ```bash
 npm run dev      # dev server en http://localhost:5173/patoapp-backoffice/
@@ -20,6 +20,9 @@ npm run build    # tsc + vite build → dist/
 
 Variables requeridas en `.env`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`,
 `VITE_DEV_PASSWORD`. Ver `.env.example`.
+
+**Deploy:** push a `main` dispara `.github/workflows/deploy.yml` → build → GitHub Pages automáticamente.
+Las variables de producción van como GitHub Secrets (no en `.env`). Agregar una variable nueva requiere añadirla también como Secret en el repo.
 
 ## Estructura
 
