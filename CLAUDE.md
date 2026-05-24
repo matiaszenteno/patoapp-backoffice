@@ -45,6 +45,14 @@ Las Edge Functions que invoca este backoffice viven en `patoapp-scrapers/supabas
 
 Antes de cambiar parámetros de esas funciones, revisar `docs/operations.md` en patoapp-scrapers.
 
+## Supabase — límites de este repo
+
+Este repo **no tiene Edge Functions propias ni migraciones de Supabase**. No crear `supabase/functions/` ni `supabase/migrations/` aquí.
+
+- Las Edge Functions las administran `patoapp-scrapers` (pipeline) y `patoapp` (app).
+- Las migraciones de schema viven en `patoapp-scrapers/supabase/migrations/`.
+- Si una tarea requiere una nueva Edge Function o cambio de schema, el cambio va en el repo correspondiente, no acá.
+
 ## Reglas base
 
 - Todo el texto de la UI va en español (locale es-CL).
