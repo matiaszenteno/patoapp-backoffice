@@ -25,6 +25,7 @@ export function Layout() {
           <NavLink className={navCls} to="/benefits">Beneficios</NavLink>
           <NavLink className={navCls} to="/merchants">Merchants</NavLink>
           <NavLink className={navCls} to="/operaciones">Operaciones</NavLink>
+          <NavLink className={navCls} to="/feedback">Feedback</NavLink>
         </nav>
         <div className="flex-1" />
         <button

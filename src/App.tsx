@@ -7,6 +7,7 @@ import { BenefitEdit } from "./pages/BenefitEdit";
 import { Merchants } from "./pages/Merchants";
 import { Clasificacion } from "./pages/Clasificacion";
 import { Operaciones } from "./pages/Operaciones";
+import { Feedback } from "./pages/Feedback";
 
 export default function App() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
           <Route path="/benefits/:id" element={<BenefitEdit />} />
           <Route path="/merchants" element={<Merchants />} />
           <Route path="/operaciones" element={<Operaciones />} />
+          <Route path="/feedback" element={<Feedback />} />
           <Route path="/scrapers" element={<Navigate replace to="/operaciones" />} />
           <Route path="/pipeline" element={<Navigate replace to="/operaciones" />} />
         </Route>
