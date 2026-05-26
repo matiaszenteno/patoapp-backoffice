@@ -10,6 +10,11 @@ type FeedbackRow = {
   benefit_title: string | null;
   issuer_name: string | null;
   merchant_name: string | null;
+  description_raw: string | null;
+  ai_description: string | null;
+  value_label: string | null;
+  ends_at: string | null;
+  category_name: string | null;
 };
 
 export function Feedback() {
@@ -70,6 +75,8 @@ export function Feedback() {
                 <th className="text-left px-4 py-2 text-xs font-medium text-stone-500 whitespace-nowrap">Emisor</th>
                 <th className="text-left px-4 py-2 text-xs font-medium text-stone-500 whitespace-nowrap">Merchant</th>
                 <th className="text-left px-4 py-2 text-xs font-medium text-stone-500 whitespace-nowrap">Beneficio</th>
+                <th className="text-left px-4 py-2 text-xs font-medium text-stone-500 whitespace-nowrap">Valor</th>
+                <th className="text-left px-4 py-2 text-xs font-medium text-stone-500 whitespace-nowrap">Categoría</th>
                 <th className="text-left px-4 py-2 text-xs font-medium text-stone-500">Comentario</th>
               </tr>
             </thead>
@@ -97,8 +104,14 @@ export function Feedback() {
                   <td className="px-4 py-2 text-stone-600 whitespace-nowrap text-xs">
                     {row.merchant_name ?? <span className="text-stone-300">—</span>}
                   </td>
-                  <td className="px-4 py-2 text-stone-600 text-xs max-w-[160px] truncate">
+                  <td className="px-4 py-2 text-stone-600 text-xs max-w-[160px] truncate" title={row.ai_description ?? row.description_raw ?? undefined}>
                     {row.benefit_title ?? <span className="text-stone-300">—</span>}
+                  </td>
+                  <td className="px-4 py-2 text-stone-600 whitespace-nowrap text-xs">
+                    {row.value_label ?? <span className="text-stone-300">—</span>}
+                  </td>
+                  <td className="px-4 py-2 text-stone-600 whitespace-nowrap text-xs">
+                    {row.category_name ?? <span className="text-stone-300">—</span>}
                   </td>
                   <td className="px-4 py-2 text-stone-800 text-xs max-w-[320px]">
                     {row.comment}
