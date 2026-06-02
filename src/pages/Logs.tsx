@@ -298,48 +298,52 @@ export function Logs() {
     const fromIso = new Date(from).toISOString();
     const toIso = new Date(to).toISOString();
 
-    const [runsRes, eventsRes] = await Promise.all([
-      supabase
-        .from("scraper_runs")
-        .select(
-          "id, issuer_slug, status, started_at, finished_at, items_found, items_inserted, error",
-        )
-        .gte("started_at", fromIso)
-        .lte("started_at", toIso)
-        .order("started_at", { ascending: false })
-        .limit(LIMIT),
-      supabase
-        .from("benefit_processing_events")
-        .select(
-          "id, raw_benefit_id, benefit_id, run_id, stage, processor, status, processor_version, input_payload, output_payload, provider, model, confidence, error, created_at",
-        )
-        .gte("created_at", fromIso)
-        .lte("created_at", toIso)
-        .order("created_at", { ascending: false })
-        .limit(LIMIT),
-    ]);
+    try {
+      const [runsRes, eventsRes] = await Promise.all([
+        supabase
+          .from("scraper_runs")
+          .select(
+            "id, issuer_slug, status, started_at, finished_at, items_found, items_inserted, error",
+          )
+          .gte("started_at", fromIso)
+          .lte("started_at", toIso)
+          .order("started_at", { ascending: false })
+          .limit(LIMIT),
+        supabase
+          .from("benefit_processing_events")
+          .select(
+            "id, raw_benefit_id, benefit_id, run_id, stage, processor, status, processor_version, input_payload, output_payload, provider, model, confidence, error, created_at",
+          )
+          .gte("created_at", fromIso)
+          .lte("created_at", toIso)
+          .order("created_at", { ascending: false })
+          .limit(LIMIT),
+      ]);
 
-    // Si otra recarga se disparó mientras esperábamos, descartamos este resultado.
-    if (reqId !== loadToken.current) return;
+      // Si otra recarga se disparó mientras esperábamos, descartamos este resultado
+      // (sin liberar loading: lo hace la recarga vigente en su propio finally).
+      if (reqId !== loadToken.current) return;
 
-    const errors: string[] = [];
-    if (runsRes.error) errors.push(`Scrapers: ${runsRes.error.message}`);
-    if (eventsRes.error) errors.push(`Pipeline: ${eventsRes.error.message}`);
-    setError(errors.length ? errors.join(" · ") : null);
+      const errors: string[] = [];
+      if (runsRes.error) errors.push(`Scrapers: ${runsRes.error.message}`);
+      if (eventsRes.error) errors.push(`Pipeline: ${eventsRes.error.message}`);
+      setError(errors.length ? errors.join(" · ") : null);
 
-    const runs = (runsRes.data as ScraperRun[] | null) ?? [];
-    const events = (eventsRes.data as ProcessingEvent[] | null) ?? [];
-    setTruncated(runs.length >= LIMIT || events.length >= LIMIT);
+      const runs = (runsRes.data as ScraperRun[] | null) ?? [];
+      const events = (eventsRes.data as ProcessingEvent[] | null) ?? [];
+      setTruncated(runs.length >= LIMIT || events.length >= LIMIT);
 
-    const merged: LogEntry[] = [
-      ...runs.map((r) => normalizeRun(r, issuerName)),
-      ...events.map(normalizeEvent),
-    ].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+      const merged: LogEntry[] = [
+        ...runs.map((r) => normalizeRun(r, issuerName)),
+        ...events.map(normalizeEvent),
+      ].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 
-    setEntries(merged);
-    setSelected((prev) => (prev ? merged.find((e) => e.id === prev.id) ?? null : null));
-    setLastUpdated(new Date());
-    setLoading(false);
+      setEntries(merged);
+      setSelected((prev) => (prev ? merged.find((e) => e.id === prev.id) ?? null : null));
+      setLastUpdated(new Date());
+    } finally {
+      if (reqId === loadToken.current) setLoading(false);
+    }
   }, [from, to, issuerName]);
 
   useEffect(() => {
@@ -348,13 +352,18 @@ export function Logs() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const loadRef = useRef(load);
+  useEffect(() => {
+    loadRef.current = load;
+  }, [load]);
+
   useEffect(() => {
     if (!autoRefresh) return;
     const id = setInterval(() => {
-      void load();
+      void loadRef.current();
     }, 15000);
     return () => clearInterval(id);
-  }, [autoRefresh, load]);
+  }, [autoRefresh]);
 
   return (
     <div className="h-full overflow-y-auto px-8 py-8">
@@ -397,7 +406,7 @@ export function Logs() {
             onChange={(e) => setAutoRefresh(e.target.checked)}
             type="checkbox"
           />
-          Auto-refresh (15s)
+          Actualización automática (15s)
         </label>
         {lastUpdated && (
           <span className="text-xs text-stone-400">
