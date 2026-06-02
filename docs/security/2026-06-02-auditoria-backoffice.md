@@ -28,11 +28,19 @@ Alcance: postura de seguridad del backoffice al nivel actual (SPA en GitHub Page
 - **Estado:** el nuevo login ya no usa esta variable, pero:
   - La contraseña sigue commiteada en `.env.example` y configurada como GitHub Secret.
   - Las cuentas dev en Supabase que tengan esa password siguen activas con ella.
+- **Confirmado (2026-06-02):** de las 4 cuentas dev, solo `c.mansillabrito@gmail.com`
+  tiene provider `email`; un intento de login con `p4t0appdevs!` devolvió **HTTP 200**,
+  o sea la contraseña filtrada **sigue activa y funcional** en esa cuenta. Las otras 3
+  (`matiaszentenoco`, `nicolas.canalespm`, `cristobal.a.garridov`) son solo Google → no
+  afectadas.
 - **Fix:**
-  1. Quitar `VITE_DEV_PASSWORD` de `.env.example`, de `.github/workflows/deploy.yml`
-     y de los GitHub Secrets.
-  2. Rotar/eliminar la contraseña de las cuentas dev en Supabase que la usaban.
-  3. Considerar el valor `p4t0appdevs!` como comprometido para siempre.
+  1. ✅ Quitar `VITE_DEV_PASSWORD` de `.env.example` y de `.github/workflows/deploy.yml`.
+  2. ✅ Eliminar el GitHub Secret `VITE_DEV_PASSWORD`.
+  3. ⏳ **PENDIENTE (acción manual del owner):** rotar/eliminar la contraseña de
+     `c.mansillabrito@gmail.com`. Decisión 2026-06-02: no tocar la cuenta automáticamente
+     para no afectar a la persona; coordinar el cambio con Cristóbal. Hasta entonces esa
+     cuenta es comprometible por cualquiera que haya leído el bundle de producción.
+  4. Considerar el valor `p4t0appdevs!` como comprometido para siempre.
 
 ### H2 — ALTA · Autorización inconsistente: las Edge Functions NO reconocen el rol `admin`
 
