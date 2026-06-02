@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { supabase } from "../lib/supabase";
 import { inputCls } from "../lib/styles";
@@ -273,6 +273,9 @@ export function Logs() {
   const [severities, setSeverities] = useState<Severity[]>(ALL_SEVERITIES);
   const [stages, setStages] = useState<string[]>(ALL_STAGES);
   const [selected, setSelected] = useState<LogEntry | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const loadToken = useRef(0);
 
   const visible = useMemo(() => {
     // Si todas las etapas están seleccionadas, no filtramos por etapa (también deja
@@ -289,6 +292,7 @@ export function Logs() {
   }, [entries, origins, severities, stages]);
 
   const load = useCallback(async () => {
+    const reqId = ++loadToken.current;
     setLoading(true);
     setError(null);
     const fromIso = new Date(from).toISOString();
@@ -315,6 +319,9 @@ export function Logs() {
         .limit(LIMIT),
     ]);
 
+    // Si otra recarga se disparó mientras esperábamos, descartamos este resultado.
+    if (reqId !== loadToken.current) return;
+
     const errors: string[] = [];
     if (runsRes.error) errors.push(`Scrapers: ${runsRes.error.message}`);
     if (eventsRes.error) errors.push(`Pipeline: ${eventsRes.error.message}`);
@@ -331,6 +338,7 @@ export function Logs() {
 
     setEntries(merged);
     setSelected((prev) => (prev ? merged.find((e) => e.id === prev.id) ?? null : null));
+    setLastUpdated(new Date());
     setLoading(false);
   }, [from, to, issuerName]);
 
@@ -339,6 +347,14 @@ export function Logs() {
     // Solo al montar; el resto de recargas son por el botón Refrescar.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const id = setInterval(() => {
+      void load();
+    }, 15000);
+    return () => clearInterval(id);
+  }, [autoRefresh, load]);
 
   return (
     <div className="h-full overflow-y-auto px-8 py-8">
@@ -374,6 +390,20 @@ export function Logs() {
         >
           {loading ? "Cargando…" : "Refrescar"}
         </button>
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-500">
+          <input
+            checked={autoRefresh}
+            className="h-4 w-4 accent-stone-900"
+            onChange={(e) => setAutoRefresh(e.target.checked)}
+            type="checkbox"
+          />
+          Auto-refresh (15s)
+        </label>
+        {lastUpdated && (
+          <span className="text-xs text-stone-400">
+            Actualizado: {lastUpdated.toLocaleTimeString("es-CL")}
+          </span>
+        )}
       </div>
 
       <div className="mb-4 flex flex-col gap-3">
