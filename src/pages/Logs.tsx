@@ -134,13 +134,6 @@ const ALL_ORIGINS: Origin[] = ["scraper", "pipeline"];
 const ALL_SEVERITIES: Severity[] = ["ok", "warning", "error", "running"];
 const ALL_STAGES = ["normalization", "enrichment", "embedding", "publication"];
 
-const SEVERITY_FILTER_LABELS: Record<Severity, string> = {
-  ok: "OK",
-  warning: "Aviso",
-  error: "Error",
-  running: "En curso",
-};
-
 function toggle<T>(list: T[], value: T): T[] {
   return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
 }
@@ -192,20 +185,19 @@ export function Logs() {
   const [severities, setSeverities] = useState<Severity[]>(ALL_SEVERITIES);
   const [stages, setStages] = useState<string[]>(ALL_STAGES);
 
-  const allStagesSelected = stages.length === ALL_STAGES.length;
-
-  const visible = useMemo(
-    () =>
-      entries.filter((e) => {
-        if (!origins.includes(e.origin)) return false;
-        if (!severities.includes(e.severity)) return false;
-        if (e.origin === "pipeline" && !allStagesSelected) {
-          return stages.includes((e.raw as ProcessingEvent).stage);
-        }
-        return true;
-      }),
-    [entries, origins, severities, stages, allStagesSelected],
-  );
+  const visible = useMemo(() => {
+    // Si todas las etapas están seleccionadas, no filtramos por etapa (también deja
+    // pasar etapas desconocidas que no estén en ALL_STAGES).
+    const allStagesSelected = stages.length === ALL_STAGES.length;
+    return entries.filter((e) => {
+      if (!origins.includes(e.origin)) return false;
+      if (!severities.includes(e.severity)) return false;
+      if (e.origin === "pipeline" && !allStagesSelected) {
+        return stages.includes((e.raw as ProcessingEvent).stage);
+      }
+      return true;
+    });
+  }, [entries, origins, severities, stages]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -307,7 +299,7 @@ export function Logs() {
           <span className="text-xs font-semibold uppercase tracking-wide text-stone-400">Severidad</span>
           {ALL_SEVERITIES.map((sev) => (
             <FilterChip active={severities.includes(sev)} key={sev} onClick={() => setSeverities((s) => toggle(s, sev))}>
-              {SEVERITY_FILTER_LABELS[sev]}
+              {SEVERITY_BADGE[sev].label}
             </FilterChip>
           ))}
         </div>
@@ -347,7 +339,9 @@ export function Logs() {
             {visible.length === 0 && !loading && (
               <tr>
                 <td className="px-4 py-6 text-center text-stone-400" colSpan={5}>
-                  Sin eventos en el rango seleccionado.
+                  {entries.length === 0
+                    ? "Sin eventos en el rango seleccionado."
+                    : "Sin eventos que coincidan con los filtros."}
                 </td>
               </tr>
             )}
