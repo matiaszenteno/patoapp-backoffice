@@ -295,8 +295,15 @@ export function Logs() {
     const reqId = ++loadToken.current;
     setLoading(true);
     setError(null);
-    const fromIso = new Date(from).toISOString();
-    const toIso = new Date(to).toISOString();
+    const fromDate = new Date(from);
+    const toDate = new Date(to);
+    if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+      setError("Rango de fechas inválido.");
+      setLoading(false);
+      return;
+    }
+    const fromIso = fromDate.toISOString();
+    const toIso = toDate.toISOString();
 
     try {
       const [runsRes, eventsRes] = await Promise.all([
