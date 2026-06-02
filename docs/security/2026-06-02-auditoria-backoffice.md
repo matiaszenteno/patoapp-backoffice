@@ -42,7 +42,7 @@ Alcance: postura de seguridad del backoffice al nivel actual (SPA en GitHub Page
      cuenta es comprometible por cualquiera que haya leído el bundle de producción.
   4. Considerar el valor `p4t0appdevs!` como comprometido para siempre.
 
-### H2 — ALTA · Autorización inconsistente: las Edge Functions NO reconocen el rol `admin`
+### H2 — ALTA · ✅ RESUELTO · Autorización inconsistente: las Edge Functions NO reconocen el rol `admin`
 
 - RLS ya acepta `app_metadata.role = 'admin'` (migración `20260602000001`), pero las
   Edge Functions (`manage-benefit`, `trigger-scraper`, `run-reprocess`,
@@ -54,21 +54,24 @@ Alcance: postura de seguridad del backoffice al nivel actual (SPA en GitHub Page
   (RLS) pero recibe **403** al publicar beneficios, disparar scrapers, reprocesar, etc.
 - Es además una mala práctica tener **dos fuentes de verdad** distintas para "quién es
   admin" (RLS por rol vs Edge Functions por email).
-- **Fix:** actualizar `assertBackofficeDeveloper()` para aceptar también
-  `user.app_metadata?.role === 'admin'`, unificando el criterio con `is_developer_email()`.
+- **Fix aplicado (branch `security/role-based-authz` en patoapp-scrapers):**
+  `assertBackofficeDeveloper()` ahora valida `user.app_metadata?.role === 'admin'` en vez
+  de `DEV_EMAILS`. Las 5 Edge Functions afectadas fueron redeployadas. Verificado:
+  `admin_backoffice` pasa la autorización (400 por body, no 403) y un token sin rol → 403.
 
-### H3 — MEDIA · Emails de admin hardcodeados en dos lugares
+### H3 — MEDIA · ✅ RESUELTO · Emails de admin hardcodeados en dos lugares
 
 - Los mismos 4 emails están duplicados en:
   - `is_developer_email()` (SQL, en `patoapp-scrapers`).
   - `DEV_EMAILS` en `backoffice-auth.ts` (Edge Functions).
 - (Antes también en `Login.tsx`, ya eliminado en este trabajo.)
 - Mantenerlos sincronizados es frágil y propenso a olvidos al dar de alta/baja personas.
-- **Recomendación:** una vez que H2 esté resuelto y todos los devs tengan cuentas con
-  `role = 'admin'` en `app_metadata`, **eliminar las listas de emails** y basar TODA la
-  autorización en el rol. Esto deja un solo criterio (`role = 'admin'`) gestionado desde
-  Supabase, sin tocar código para alta/baja. Responde directamente a la pregunta del
-  usuario: sí, conviene dejar de hardcodearlos.
+- **Fix aplicado:** se asignó `role = 'admin'` en `app_metadata` a las 4 cuentas dev y se
+  eliminaron las listas de emails de ambos lugares (`is_developer_email()` vía migración
+  `20260602000002`, y `DEV_EMAILS` en `backoffice-auth.ts`). Ahora la autorización tiene
+  un solo criterio (`role = 'admin'`) gestionado desde Supabase, sin tocar código para
+  alta/baja. (Recordar actualizar la nota de `CLAUDE.md` que aún menciona editar
+  `DEV_EMAILS` / `is_developer_email()` al agregar un dev.)
 
 ### H4 — MEDIA · `SUPABASE_SECRET_KEY` y otros secretos sensibles en `.env` local
 
@@ -93,9 +96,8 @@ Alcance: postura de seguridad del backoffice al nivel actual (SPA en GitHub Page
 
 ## Plan de acción priorizado
 
-1. **H1** — Rotar `p4t0appdevs!`, quitarla de `.env.example`, workflow y Secrets.
-2. **H2** — Hacer que `assertBackofficeDeveloper()` acepte `role = 'admin'`
-   (cambio en `patoapp-scrapers`).
-3. **H4** — Limpiar `.env` local dejando solo las 2 vars públicas.
-4. **H3** — Tras 1-3 y migrar a todos los devs a cuentas con `role = 'admin'`,
-   eliminar las listas de emails hardcodeadas y dejar el rol como criterio único.
+1. ✅ **H1** — `VITE_DEV_PASSWORD` quitada de `.env.example`, workflow y Secrets.
+   ⏳ Pendiente manual: rotar la contraseña de `c.mansillabrito@gmail.com`.
+2. ✅ **H2** — `assertBackofficeDeveloper()` valida `role = 'admin'`; Edge Functions redeployadas.
+3. ✅ **H4** — `.env` local del backoffice limpio; secretos movidos a `patoapp-scrapers/.env.local`.
+4. ✅ **H3** — Listas de emails eliminadas; autorización 100% por rol.
