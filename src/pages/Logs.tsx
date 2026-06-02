@@ -162,6 +162,93 @@ function FilterChip({
   );
 }
 
+function DetailRow({ label, value }: { label: string; value: ReactNode }) {
+  if (value === null || value === undefined || value === "") return null;
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-xs font-semibold uppercase tracking-wide text-stone-400">{label}</span>
+      <span className="text-sm text-stone-700 break-words">{value}</span>
+    </div>
+  );
+}
+
+function JsonBlock({ label, value }: { label: string; value: unknown }) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "object" && Object.keys(value as object).length === 0) return null;
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-xs font-semibold uppercase tracking-wide text-stone-400">{label}</span>
+      <pre className="overflow-auto rounded-md border border-stone-200 bg-stone-50 p-3 text-xs text-stone-600">
+        {JSON.stringify(value, null, 2)}
+      </pre>
+    </div>
+  );
+}
+
+function LogDetailPanel({ entry, onClose }: { entry: LogEntry; onClose: () => void }) {
+  const isPipeline = entry.origin === "pipeline";
+  const run = entry.raw as ScraperRun;
+  const event = entry.raw as ProcessingEvent;
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
+      <div className="absolute inset-0 bg-stone-900/20" />
+      <div
+        className="relative z-50 flex h-full w-full max-w-md flex-col gap-4 overflow-y-auto border-l border-stone-200 bg-white p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">
+              {ORIGIN_LABELS[entry.origin]} · {entry.type}
+            </p>
+            <h2 className="mt-0.5 text-base font-semibold text-stone-900">{formatDateTime(entry.timestamp)}</h2>
+          </div>
+          <button
+            className="rounded-md px-2 py-1 text-sm text-stone-400 hover:bg-stone-100 hover:text-stone-700"
+            onClick={onClose}
+            type="button"
+          >
+            Cerrar
+          </button>
+        </div>
+
+        <SeverityBadge severity={entry.severity} />
+
+        {entry.raw.error && (
+          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 break-words">
+            {entry.raw.error}
+          </div>
+        )}
+
+        {isPipeline ? (
+          <>
+            <DetailRow label="Processor" value={event.processor} />
+            <DetailRow label="Versión del processor" value={event.processor_version} />
+            <DetailRow label="Estado original" value={event.status} />
+            <DetailRow label="Proveedor" value={event.provider} />
+            <DetailRow label="Modelo" value={event.model} />
+            <DetailRow label="Confidence" value={event.confidence === null ? null : String(event.confidence)} />
+            <DetailRow label="raw_benefit_id" value={event.raw_benefit_id} />
+            <DetailRow label="benefit_id" value={event.benefit_id} />
+            <DetailRow label="run_id" value={event.run_id} />
+            <JsonBlock label="Input payload" value={event.input_payload} />
+            <JsonBlock label="Output payload" value={event.output_payload} />
+          </>
+        ) : (
+          <>
+            <DetailRow label="Emisor" value={run.issuer_slug} />
+            <DetailRow label="Estado original" value={run.status} />
+            <DetailRow label="Inicio" value={formatDateTime(run.started_at)} />
+            <DetailRow label="Fin" value={formatDateTime(run.finished_at)} />
+            <DetailRow label="Encontrados" value={run.items_found === null ? null : String(run.items_found)} />
+            <DetailRow label="Guardados" value={run.items_inserted === null ? null : String(run.items_inserted)} />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Página ───────────────────────────────────────────────────────────────────
 
 export function Logs() {
@@ -184,6 +271,7 @@ export function Logs() {
   const [origins, setOrigins] = useState<Origin[]>(ALL_ORIGINS);
   const [severities, setSeverities] = useState<Severity[]>(ALL_SEVERITIES);
   const [stages, setStages] = useState<string[]>(ALL_STAGES);
+  const [selected, setSelected] = useState<LogEntry | null>(null);
 
   const visible = useMemo(() => {
     // Si todas las etapas están seleccionadas, no filtramos por etapa (también deja
@@ -346,7 +434,11 @@ export function Logs() {
               </tr>
             )}
             {visible.map((entry) => (
-              <tr key={entry.id} className="hover:bg-stone-50">
+              <tr
+                className="cursor-pointer hover:bg-stone-50"
+                key={entry.id}
+                onClick={() => setSelected(entry)}
+              >
                 <td className="px-4 py-3 whitespace-nowrap text-stone-400">{formatDateTime(entry.timestamp)}</td>
                 <td className="px-4 py-3 text-stone-500">{ORIGIN_LABELS[entry.origin]}</td>
                 <td className="px-4 py-3 text-stone-700">{entry.type}</td>
@@ -357,6 +449,8 @@ export function Logs() {
           </tbody>
         </table>
       </div>
+
+      {selected && <LogDetailPanel entry={selected} onClose={() => setSelected(null)} />}
     </div>
   );
 }
