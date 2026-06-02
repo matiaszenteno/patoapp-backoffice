@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { supabase } from "../lib/supabase";
 import { inputCls } from "../lib/styles";
 import { useIssuers } from "../lib/useIssuers";
@@ -129,6 +130,45 @@ function SeverityBadge({ severity }: { severity: Severity }) {
   return <span className={`rounded px-2 py-0.5 text-xs font-medium border ${cls}`}>{label}</span>;
 }
 
+const ALL_ORIGINS: Origin[] = ["scraper", "pipeline"];
+const ALL_SEVERITIES: Severity[] = ["ok", "warning", "error", "running"];
+const ALL_STAGES = ["normalization", "enrichment", "embedding", "publication"];
+
+const SEVERITY_FILTER_LABELS: Record<Severity, string> = {
+  ok: "OK",
+  warning: "Aviso",
+  error: "Error",
+  running: "En curso",
+};
+
+function toggle<T>(list: T[], value: T): T[] {
+  return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
+}
+
+function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+        active
+          ? "border-stone-900 bg-stone-900 text-white"
+          : "border-stone-200 bg-white text-stone-500 hover:border-stone-400"
+      }`}
+      onClick={onClick}
+      type="button"
+    >
+      {children}
+    </button>
+  );
+}
+
 // ─── Página ───────────────────────────────────────────────────────────────────
 
 export function Logs() {
@@ -147,6 +187,25 @@ export function Logs() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
+
+  const [origins, setOrigins] = useState<Origin[]>(ALL_ORIGINS);
+  const [severities, setSeverities] = useState<Severity[]>(ALL_SEVERITIES);
+  const [stages, setStages] = useState<string[]>(ALL_STAGES);
+
+  const allStagesSelected = stages.length === ALL_STAGES.length;
+
+  const visible = useMemo(
+    () =>
+      entries.filter((e) => {
+        if (!origins.includes(e.origin)) return false;
+        if (!severities.includes(e.severity)) return false;
+        if (e.origin === "pipeline" && !allStagesSelected) {
+          return stages.includes((e.raw as ProcessingEvent).stage);
+        }
+        return true;
+      }),
+    [entries, origins, severities, stages, allStagesSelected],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -235,6 +294,33 @@ export function Logs() {
         </button>
       </div>
 
+      <div className="mb-4 flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-stone-400">Origen</span>
+          {ALL_ORIGINS.map((o) => (
+            <FilterChip active={origins.includes(o)} key={o} onClick={() => setOrigins((s) => toggle(s, o))}>
+              {ORIGIN_LABELS[o]}
+            </FilterChip>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-stone-400">Severidad</span>
+          {ALL_SEVERITIES.map((sev) => (
+            <FilterChip active={severities.includes(sev)} key={sev} onClick={() => setSeverities((s) => toggle(s, sev))}>
+              {SEVERITY_FILTER_LABELS[sev]}
+            </FilterChip>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-stone-400">Etapa (pipeline)</span>
+          {ALL_STAGES.map((st) => (
+            <FilterChip active={stages.includes(st)} key={st} onClick={() => setStages((s) => toggle(s, st))}>
+              {STAGE_LABELS[st] ?? st}
+            </FilterChip>
+          ))}
+        </div>
+      </div>
+
       {error && (
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
           {error}
@@ -258,14 +344,14 @@ export function Logs() {
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
-            {entries.length === 0 && !loading && (
+            {visible.length === 0 && !loading && (
               <tr>
                 <td className="px-4 py-6 text-center text-stone-400" colSpan={5}>
                   Sin eventos en el rango seleccionado.
                 </td>
               </tr>
             )}
-            {entries.map((entry) => (
+            {visible.map((entry) => (
               <tr key={entry.id} className="hover:bg-stone-50">
                 <td className="px-4 py-3 whitespace-nowrap text-stone-400">{formatDateTime(entry.timestamp)}</td>
                 <td className="px-4 py-3 text-stone-500">{ORIGIN_LABELS[entry.origin]}</td>
