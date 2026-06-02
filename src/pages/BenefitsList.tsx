@@ -29,17 +29,36 @@ export function BenefitsList() {
   const load = useCallback(async (search: string, pageIndex: number, replace: boolean) => {
     setLoading(true);
 
-    let q = supabase
+    const base = () => supabase
       .from("benefits")
       .select("id, title, image_url, source_url, status, ends_at, issuers(name), merchants(name,image_url), categories(name)")
-      .order("updated_at", { ascending: false })
-      .range(pageIndex * PAGE_SIZE, (pageIndex + 1) * PAGE_SIZE - 1);
+      .order("updated_at", { ascending: false });
+
+    let data, error;
 
     if (search.trim()) {
-      q = q.ilike("title", `%${search.trim()}%`);
+      const [byTitle, byMerchant] = await Promise.all([
+        base().ilike("title", `%${search.trim()}%`),
+        supabase
+          .from("benefits")
+          .select("id, title, image_url, source_url, status, ends_at, issuers(name), merchants!inner(name,image_url), categories(name)")
+          .order("updated_at", { ascending: false })
+          .ilike("merchants.name", `%${search.trim()}%`),
+      ]);
+      if (byTitle.error) { error = byTitle.error; }
+      else {
+        const seen = new Set<string>();
+        const merged = [...(byTitle.data ?? []), ...(byMerchant.data ?? [])].filter((b) => {
+          if (seen.has(b.id as string)) return false;
+          seen.add(b.id as string);
+          return true;
+        });
+        const start = pageIndex * PAGE_SIZE;
+        data = merged.slice(start, start + PAGE_SIZE);
+      }
+    } else {
+      ({ data, error } = await base().range(pageIndex * PAGE_SIZE, (pageIndex + 1) * PAGE_SIZE - 1));
     }
-
-    const { data, error } = await q;
     setLoading(false);
 
     if (error) {

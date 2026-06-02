@@ -555,25 +555,37 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
 
 export function Merchants() {
   const [merchants, setMerchants] = useState<MerchantRow[]>([]);
-  const [filtered, setFiltered] = useState<MerchantRow[]>([]);
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase
+    const t = setTimeout(() => setDebouncedQuery(query), 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  useEffect(() => {
+    setLoading(true);
+    const q = debouncedQuery.trim();
+    let supabaseQuery = supabase
       .from("merchants")
       .select("id, name, normalized_name, image_url, scraped_addresses, addresses_resolved_at, merchant_locations(id,source)")
-      .order("name")
-      .then(({ data }) => {
-        if (!data) return;
-        const rows = data.map((m) => {
-          const locations = Array.isArray(m.merchant_locations) ? (m.merchant_locations as Array<{ source?: string | null }>) : [];
-          const locationSources = locations.reduce<Record<string, number>>((acc, loc) => {
-            const source = loc.source || "manual";
-            acc[source] = (acc[source] ?? 0) + 1;
-            return acc;
-          }, {});
-          return {
+      .order("name");
+
+    if (q) {
+      supabaseQuery = supabaseQuery.or(`name.ilike.%${q}%,normalized_name.ilike.%${q}%`);
+    }
+
+    supabaseQuery.then(({ data }) => {
+      if (!data) { setLoading(false); return; }
+      const rows = data.map((m) => {
+        const locations = Array.isArray(m.merchant_locations) ? (m.merchant_locations as Array<{ source?: string | null }>) : [];
+        const locationSources = locations.reduce<Record<string, number>>((acc, loc) => {
+          const source = loc.source || "manual";
+          acc[source] = (acc[source] ?? 0) + 1;
+          return acc;
+        }, {});
+        return {
           id: m.id as string,
           addresses_resolved_at: m.addresses_resolved_at as string | null,
           image_url: m.image_url as string | null,
@@ -585,19 +597,11 @@ export function Merchants() {
             ? (m.scraped_addresses as MerchantRow["scraped_addresses"])
             : [],
         };
-        });
-        setMerchants(rows);
-        setFiltered(rows);
-        setLoading(false);
       });
-  }, []);
-
-  useEffect(() => {
-    const q = query.trim().toLowerCase();
-    setFiltered(q ? merchants.filter((m) =>
-      m.name.toLowerCase().includes(q) || m.normalized_name.toLowerCase().includes(q)
-    ) : merchants);
-  }, [query, merchants]);
+      setMerchants(rows);
+      setLoading(false);
+    });
+  }, [debouncedQuery]);
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-8 flex flex-col gap-5">
@@ -618,10 +622,10 @@ export function Merchants() {
         <p className="text-sm text-stone-400">Cargando...</p>
       ) : (
         <div className="flex flex-col gap-2">
-          {filtered.map((m) => (
+          {merchants.map((m) => (
             <MerchantCard key={m.id} merchant={m} />
           ))}
-          {filtered.length === 0 && (
+          {merchants.length === 0 && (
             <p className="text-center text-sm text-stone-400">Sin resultados</p>
           )}
         </div>
