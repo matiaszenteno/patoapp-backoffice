@@ -174,7 +174,7 @@ function DetailRow({ label, value }: { label: string; value: ReactNode }) {
 
 function JsonBlock({ label, value }: { label: string; value: unknown }) {
   if (value === null || value === undefined) return null;
-  if (typeof value === "object" && Object.keys(value as object).length === 0) return null;
+  if (JSON.stringify(value) === "{}") return null;
   return (
     <div className="flex flex-col gap-0.5">
       <span className="text-xs font-semibold uppercase tracking-wide text-stone-400">{label}</span>
@@ -199,9 +199,10 @@ function LogDetailPanel({ entry, onClose }: { entry: LogEntry; onClose: () => vo
         <div className="flex items-start justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">
-              {ORIGIN_LABELS[entry.origin]} · {entry.type}
+              {ORIGIN_LABELS[entry.origin]}
             </p>
-            <h2 className="mt-0.5 text-base font-semibold text-stone-900">{formatDateTime(entry.timestamp)}</h2>
+            <h2 className="mt-0.5 text-base font-semibold text-stone-900">{entry.type}</h2>
+            <p className="mt-0.5 text-xs text-stone-400">{formatDateTime(entry.timestamp)}</p>
           </div>
           <button
             className="rounded-md px-2 py-1 text-sm text-stone-400 hover:bg-stone-100 hover:text-stone-700"
@@ -227,10 +228,10 @@ function LogDetailPanel({ entry, onClose }: { entry: LogEntry; onClose: () => vo
             <DetailRow label="Estado original" value={event.status} />
             <DetailRow label="Proveedor" value={event.provider} />
             <DetailRow label="Modelo" value={event.model} />
-            <DetailRow label="Confidence" value={event.confidence === null ? null : String(event.confidence)} />
-            <DetailRow label="raw_benefit_id" value={event.raw_benefit_id} />
-            <DetailRow label="benefit_id" value={event.benefit_id} />
-            <DetailRow label="run_id" value={event.run_id} />
+            <DetailRow label="Confianza" value={event.confidence === null ? null : String(event.confidence)} />
+            <DetailRow label="ID beneficio (raw)" value={event.raw_benefit_id} />
+            <DetailRow label="ID beneficio" value={event.benefit_id} />
+            <DetailRow label="ID corrida" value={event.run_id} />
             <JsonBlock label="Input payload" value={event.input_payload} />
             <JsonBlock label="Output payload" value={event.output_payload} />
           </>
@@ -329,6 +330,7 @@ export function Logs() {
     ].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 
     setEntries(merged);
+    setSelected((prev) => (prev ? merged.find((e) => e.id === prev.id) ?? null : null));
     setLoading(false);
   }, [from, to, issuerName]);
 
