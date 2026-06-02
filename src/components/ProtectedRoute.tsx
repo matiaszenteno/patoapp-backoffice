@@ -24,7 +24,7 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!session) {
+  if (!session || session.user.app_metadata?.role !== "admin") {
     return <Navigate replace to="/login" />;
   }
 
