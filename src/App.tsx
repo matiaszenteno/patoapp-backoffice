@@ -8,6 +8,9 @@ import { Merchants } from "./pages/Merchants";
 import { Clasificacion } from "./pages/Clasificacion";
 import { Operaciones } from "./pages/Operaciones";
 import { Feedback } from "./pages/Feedback";
+import { Inicio } from "./pages/Inicio";
+import { Metricas } from "./pages/Metricas";
+import { Logs } from "./pages/Logs";
 
 export default function App() {
   return (
@@ -21,7 +24,8 @@ export default function App() {
             </ProtectedRoute>
           }
         >
-          <Route index element={<Navigate replace to="/clasificacion" />} />
+          <Route index element={<Navigate replace to="/inicio" />} />
+          <Route path="/inicio" element={<Inicio />} />
           <Route path="/clasificacion" element={<Clasificacion />} />
           <Route path="/benefits" element={<BenefitsList />} />
           <Route path="/benefits/new" element={<BenefitEdit />} />
@@ -29,6 +33,8 @@ export default function App() {
           <Route path="/merchants" element={<Merchants />} />
           <Route path="/operaciones" element={<Operaciones />} />
           <Route path="/feedback" element={<Feedback />} />
+          <Route path="/metricas" element={<Metricas />} />
+          <Route path="/logs" element={<Logs />} />
           <Route path="/scrapers" element={<Navigate replace to="/operaciones" />} />
           <Route path="/pipeline" element={<Navigate replace to="/operaciones" />} />
         </Route>
