@@ -94,12 +94,12 @@ Cualquier status desconocido → `ok` por defecto (no romper la vista).
 - **Rango fecha/hora**: dos inputs `datetime-local` (desde / hasta). Default: últimas 24 h.
   Se aplica **server-side** (`gte`/`lte` sobre `started_at` para scraper y `created_at` para
   pipeline). Es el control principal de volumen.
-- **Origen**: chips multi-selección (scraper / pipeline). Si una fuente queda excluida, no se
-  consulta.
+- **Origen**: chips multi-selección (scraper / pipeline). Client-side tras el merge.
 - **Severidad**: chips multi-selección (ok / aviso / error / en curso). Client-side tras el merge.
 - **Etapa**: chips multi-selección, solo aplica a pipeline. Client-side.
 
-Severidad y etapa se filtran client-side por simplicidad (el rango de fecha ya acota el volumen).
+Los tres filtros de chips se aplican client-side por simplicidad; el rango de fecha (server-side)
+es el único control de volumen. Ambas fuentes se consultan siempre dentro del rango.
 
 ## Consultas
 
@@ -108,8 +108,8 @@ Severidad y etapa se filtran client-side por simplicidad (el rango de fecha ya a
 - `benefit_processing_events`: `select` de campos necesarios, `gte('created_at', desde)`,
   `lte('created_at', hasta)`, `order('created_at', desc)`, `limit` (p. ej. 500).
 - Ejecutar en paralelo (`Promise.all`). Normalizar cada resultado a `LogEntry`, concatenar,
-  ordenar por `timestamp` desc, aplicar filtros client-side (origen ya decidió qué consultar;
-  severidad y etapa filtran el resultado).
+  ordenar por `timestamp` desc, aplicar filtros client-side (origen / severidad / etapa) sobre
+  el resultado merged.
 - Si el límite por fuente se alcanza, indicar en la UI que el resultado puede estar truncado
   (sugerir acotar el rango).
 
