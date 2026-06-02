@@ -63,4 +63,4 @@ Este repo **no tiene Edge Functions propias ni migraciones de Supabase**. No cre
 - No hay tests; validar cambios de UI corriendo `npm run dev`.
 - El `base` en `vite.config.ts` y el `basename` en `BrowserRouter` deben mantenerse sincronizados (`/patoapp-backoffice/`).
 - No hay tipos Supabase generados; al cambiar schema, actualizar los tipos locales manualmente.
-- Agregar un email de dev requiere editar `DEV_EMAILS` en `Login.tsx` Y la función `is_developer_email()` en Supabase (migración en patoapp-scrapers).
+- El acceso al backoffice se controla por rol: `app_metadata.role = 'admin'` en Supabase Auth. El login (`signInWithPassword`) y `ProtectedRoute` validan ese rol; RLS (`is_developer_email()`) y las Edge Functions (`assertBackofficeDeveloper`) también. Dar de alta/baja a un admin se hace seteando/quitando el rol en Supabase (Authentication → Users → edit `app_metadata`), sin tocar código.
