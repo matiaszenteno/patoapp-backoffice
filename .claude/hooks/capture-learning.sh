@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Suggests capturing a learning when the session involved PR comment work.
-# Uses decision:allow so Claude sees the nudge but is not forced to respond.
+# Stop hooks only surface a message via decision:block (allow/omit is silent — the
+# reason is ignored). block forces one extra turn so Claude sees the nudge and decides;
+# the stop_hook_active guard above prevents this from re-firing into a loop.
 input=$(cat)
 
 # Guard: never re-fire inside a stop-hook-induced turn
@@ -28,7 +30,7 @@ if grep -qE \
     'gh pr view.*(--comments|--json comments)|gh api .*/pulls/[0-9]+/comments|gh api .*/pulls/[0-9]+/reviews|gh pr comment|resolveReviewThread' \
     "$transcript_path" 2>/dev/null; then
     echo '{
-  "decision": "allow",
+  "decision": "block",
   "reason": "Esta sesión involucró trabajo sobre comentarios de PR. Si surgió algo genuinamente útil — una corrección de reviewer, un patrón que no conocías, una restricción no obvia — considera registrarlo en learning/inbox/ siguiendo el schema de learning/README.md. Si no hay nada que valga la pena, no escribas nada."
 }'
 fi
