@@ -3,7 +3,6 @@ dist
 .env
 .mcp.*
 .gitignore
-.claude/settings.json
 .claude/settings.local.json
 .superpowers/*.code-workspace
 *.code-workspace*

@@ -1,0 +1,25 @@
+{
+  "enabledPlugins": {
+    "code-review@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|Bash",
+        "hooks": [{ "type": "command", "command": "bash .claude/hooks/block-env-edit.sh" }]
+      },
+      {
+        "matcher": "mcp__supabase__apply_migration|mcp__supabase__deploy_edge_function|mcp__supabase__execute_sql",
+        "hooks": [{ "type": "command", "command": "bash .claude/hooks/block-supabase-direct.sh" }]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [{ "type": "command", "command": "bash .claude/hooks/capture-learning.sh" }]
+      }
+    ]
+  }
+}
