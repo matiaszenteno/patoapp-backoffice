@@ -1,66 +1,49 @@
 # Qué es esto?
 
-UI operacional para gestionar el pipeline de beneficios de patoapp. Permite
-publicar beneficios, disparar scrapers, clasificar raws, editar merchants y
-actualizar ubicaciones. Solo accesible para emails de desarrolladores.
+UI operacional interna (solo devs) en React 19 + Vite + Tailwind. Gestiona el pipeline de
+beneficios de patoapp: publicar/despublicar, disparar scrapers, clasificar raws, editar
+merchants, actualizar ubicaciones. Acceso gated por `is_developer_email()` en Supabase.
+
+Este repo es **pure consumer** de Supabase. Migraciones, Edge Functions y pipeline de datos
+viven en `patoapp-scrapers`.
 
 ## Stack
 
-- React 19 + TypeScript 5.7 + Vite 6 + Tailwind CSS 3.
+- React 19 + TypeScript + Vite 6 + Tailwind CSS 3.
 - React Hook Form + Zod para formularios con validación.
-- Leaflet + react-leaflet para el editor de ubicaciones de merchants.
+- Leaflet + react-leaflet para editor de ubicaciones.
 - Supabase JS client directo (sin capa API ni server actions).
+- Routing: react-router-dom v7 con `basename: /patoapp-backoffice/`.
 
-## Comandos y deploy
+## Contexto y skills
 
-```bash
-npm run dev      # dev server en http://localhost:5173/patoapp-backoffice/
-npm run build    # tsc + vite build → dist/
-```
+| Qué necesitas | Dónde está |
+|---|---|
+| Comandos, estructura, patrones, EFs | skill `repo-operations` |
+| Git, branches, PRs | skill `git-workflow` |
+| Supabase (lecturas, RLS, invocar EFs) | skill `supabase` |
+| Diseño de features operacionales | skill `ops-review` |
+| Promover learnings del inbox | skill `learning-review` |
 
-Variables requeridas en `.env`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`,
-`VITE_DEV_PASSWORD`. Ver `.env.example`.
+**Learnings:** aprendizajes capturados de sesiones van a `learning/inbox/`. Promover vía `/learning-review` — no editar CLAUDE.md directamente.
 
-**Deploy:** push a `main` dispara `.github/workflows/deploy.yml` → build → GitHub Pages automáticamente.
-Las variables de producción van como GitHub Secrets (no en `.env`). Agregar una variable nueva requiere añadirla también como Secret en el repo.
+## Plugins
 
-## Estructura
-
-```
-src/
-  components/   Layout.tsx, ProtectedRoute.tsx
-  lib/          supabase.ts, useIssuers.ts, styles.ts (clases Tailwind compartidas)
-  pages/        BenefitsList, BenefitEdit, Merchants, Clasificacion, Scrapers, Pipeline
-```
-
-## Patrones clave
-
-- **Datos:** `supabase.from(tabla).select/insert/update/delete()` directamente en cada página.
-- **Edge Functions:** `supabase.functions.invoke(nombre, { body, headers: { Authorization: \`Bearer ${token}\` } })`. El token viene de `supabase.auth.getSession()`.
-- **Formularios:** Zod schema → `zodResolver` → `useForm`. Sin submit nativo.
-- **Estilos:** inputs y selects usan `inputCls`/`selectCls` de `src/lib/styles.ts`.
-
-## Relación con patoapp-scrapers
-
-Las Edge Functions que invoca este backoffice viven en `patoapp-scrapers/supabase/functions/`:
-`run-reprocess`, `trigger-scraper`, `run-refresh-ai-descriptions`, `manage-benefit`,
-`refresh-merchant-locations`.
-
-Antes de cambiar parámetros de esas funciones, revisar `docs/operations.md` en patoapp-scrapers.
-
-## Supabase — límites de este repo
-
-Este repo **no tiene Edge Functions propias ni migraciones de Supabase**. No crear `supabase/functions/` ni `supabase/migrations/` aquí.
-
-- Las Edge Functions las administran `patoapp-scrapers` (pipeline) y `patoapp` (app).
-- Las migraciones de schema viven en `patoapp-scrapers/supabase/migrations/`.
-- Si una tarea requiere una nueva Edge Function o cambio de schema, el cambio va en el repo correspondiente, no acá.
+`code-review`, `code-simplifier`, `skill-creator` — declarados en `.claude/settings.json`.
 
 ## Reglas base
 
-- Todo el texto de la UI va en español (locale es-CL).
-- No agregar librerías de UI (shadcn, MUI, etc.); los componentes son Tailwind puro.
-- No hay tests; validar cambios de UI corriendo `npm run dev`.
-- El `base` en `vite.config.ts` y el `basename` en `BrowserRouter` deben mantenerse sincronizados (`/patoapp-backoffice/`).
-- No hay tipos Supabase generados; al cambiar schema, actualizar los tipos locales manualmente.
-- Agregar un email de dev requiere editar `DEV_EMAILS` en `Login.tsx` Y la función `is_developer_email()` en Supabase (migración en patoapp-scrapers).
+- No crear `supabase/functions/` ni `supabase/migrations/` aquí — van en `patoapp-scrapers`.
+- No editar `.env`; documentar variables nuevas en `.env.example`.
+- El `base` en `vite.config.ts` y `basename` en `BrowserRouter` deben estar sincronizados (`/patoapp-backoffice/`). Cambiar ambos o ninguno.
+- No hay tests; validar cambios corriendo `npm run dev` + navegación manual.
+- Todo texto de UI en español (locale es-CL).
+- No agregar librerías de UI (shadcn, MUI, etc.); Tailwind puro + `src/lib/styles.ts`.
+- Agregar un dev = editar `DEV_EMAILS` en `Login.tsx` **y** `is_developer_email()` en Supabase (migración en `patoapp-scrapers`).
+- No hay tipos Supabase generados; actualizar tipos locales manualmente al cambiar schema.
+
+## Diseño y producto
+
+Esta herramienta opera sobre producción real. Antes de implementar cualquier feature invocar
+`/ops-review`: seguridad de acciones destructivas, blast radius de operaciones masivas,
+feedback operacional explícito, claridad antes que estética.
