@@ -14,10 +14,14 @@ case "$tool" in
         echo "ERROR: deploy_edge_function está bloqueado (CLAUDE.md). Este repo no tiene Edge Functions propias. Las EFs viven en patoapp-scrapers — el deploy es automático via GH Actions al mergear a main allá." >&2
         exit 2
         ;;
+    mcp__supabase__create_branch|mcp__supabase__delete_branch|mcp__supabase__merge_branch|mcp__supabase__rebase_branch|mcp__supabase__reset_branch)
+        echo "ERROR: Supabase branch mutations ($tool) están bloqueadas. Branch management must go through CI." >&2
+        exit 2
+        ;;
     mcp__supabase__execute_sql)
-        command=$(echo "$input" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('query',''))" 2>/dev/null || echo "")
-        if echo "$command" | grep -qiE '^\s*(CREATE|DROP|ALTER|TRUNCATE|RENAME)'; then
-            echo "ERROR: DDL via execute_sql está bloqueado (CLAUDE.md). Los cambios de schema van en patoapp-scrapers/supabase/migrations/." >&2
+        query=$(echo "$input" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('query',''))" 2>/dev/null || echo "")
+        if echo "$query" | grep -qiE '^\s*(CREATE|DROP|ALTER|TRUNCATE|RENAME|INSERT|UPDATE|DELETE|MERGE|COPY)'; then
+            echo "ERROR: Write SQL via execute_sql está bloqueado (CLAUDE.md). Los cambios de schema van en patoapp-scrapers/supabase/migrations/; los writes de datos van por el pipeline de CI." >&2
             exit 2
         fi
         ;;
