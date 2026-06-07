@@ -46,6 +46,7 @@ export function BenefitsList() {
           .ilike("merchants.name", `%${search.trim()}%`),
       ]);
       if (byTitle.error) { error = byTitle.error; }
+      else if (byMerchant.error) { error = byMerchant.error; }
       else {
         const seen = new Set<string>();
         const merged = [...(byTitle.data ?? []), ...(byMerchant.data ?? [])].filter((b) => {
