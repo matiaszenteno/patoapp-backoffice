@@ -14,6 +14,7 @@ type BenefitStats = {
   needs_review: number;
   failed: number;
   pending: number;
+  ignored: number;
 };
 
 type ScraperRun = {
@@ -53,7 +54,6 @@ function StatCard({ label, value, sub }: { label: string; value: number | string
 
 const STATUS_STYLES: Record<string, string> = {
   succeeded: "bg-emerald-100 text-emerald-700",
-  success: "bg-emerald-100 text-emerald-700",
   failed: "bg-red-100 text-red-700",
   running: "bg-blue-100 text-blue-700",
   pending: "bg-amber-100 text-amber-700",
@@ -61,7 +61,6 @@ const STATUS_STYLES: Record<string, string> = {
 
 const STATUS_LABELS: Record<string, string> = {
   succeeded: "Exitoso",
-  success: "Exitoso",
   failed: "Con error",
   running: "En curso",
   pending: "Pendiente",
@@ -109,7 +108,7 @@ export function Metricas() {
   const { users, benefits, scraper_runs, weekly_users, needs_review_by_issuer } = metrics;
   const weeklyList = weekly_users ?? [];
   const maxWeekCount = Math.max(...weeklyList.map((w) => w.count), 1);
-  const totalBenefits = benefits.published + benefits.needs_review + benefits.failed + benefits.pending || 1;
+  const totalBenefits = benefits.published + benefits.needs_review + benefits.failed + benefits.pending + benefits.ignored || 1;
 
   return (
     <div className="overflow-y-auto h-full">
@@ -176,6 +175,7 @@ export function Metricas() {
             <StatCard label="En revisión" value={benefits.needs_review} />
             <StatCard label="Fallidos" value={benefits.failed} />
             <StatCard label="Pendientes" value={benefits.pending} />
+            <StatCard label="Ignorados" value={benefits.ignored} />
           </div>
 
           <div className="rounded-xl border border-stone-200 bg-white px-5 py-4">
@@ -187,6 +187,7 @@ export function Metricas() {
               { label: "En revisión", value: benefits.needs_review, color: "bg-amber-400" },
               { label: "Fallidos", value: benefits.failed, color: "bg-red-400" },
               { label: "Pendientes", value: benefits.pending, color: "bg-stone-300" },
+              { label: "Ignorados", value: benefits.ignored, color: "bg-stone-200" },
             ].map(({ label, value, color }) => (
               <div key={label} className="flex items-center gap-3 mb-2">
                 <span className="text-xs text-stone-500 w-24 shrink-0">{label}</span>
