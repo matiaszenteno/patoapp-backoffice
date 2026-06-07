@@ -566,41 +566,53 @@ export function Merchants() {
 
   useEffect(() => {
     setLoading(true);
+    let cancelled = false;
     const q = debouncedQuery.trim();
+    // Strip chars that break PostgREST's or() filter string parser
+    const safeQ = q.replace(/[,()]/g, "");
+
     let supabaseQuery = supabase
       .from("merchants")
       .select("id, name, normalized_name, image_url, scraped_addresses, addresses_resolved_at, merchant_locations(id,source)")
       .order("name");
 
-    if (q) {
-      supabaseQuery = supabaseQuery.or(`name.ilike.%${q}%,normalized_name.ilike.%${q}%`);
+    if (safeQ) {
+      supabaseQuery = supabaseQuery.or(`name.ilike.%${safeQ}%,normalized_name.ilike.%${safeQ}%`);
     }
 
-    supabaseQuery.then(({ data }) => {
-      if (!data) { setLoading(false); return; }
-      const rows = data.map((m) => {
-        const locations = Array.isArray(m.merchant_locations) ? (m.merchant_locations as Array<{ source?: string | null }>) : [];
-        const locationSources = locations.reduce<Record<string, number>>((acc, loc) => {
-          const source = loc.source || "manual";
-          acc[source] = (acc[source] ?? 0) + 1;
-          return acc;
-        }, {});
-        return {
-          id: m.id as string,
-          addresses_resolved_at: m.addresses_resolved_at as string | null,
-          image_url: m.image_url as string | null,
-          name: m.name as string,
-          normalized_name: m.normalized_name as string,
-          location_count: locations.length,
-          location_sources: locationSources,
-          scraped_addresses: Array.isArray(m.scraped_addresses)
-            ? (m.scraped_addresses as MerchantRow["scraped_addresses"])
-            : [],
-        };
-      });
-      setMerchants(rows);
-      setLoading(false);
-    });
+    (async () => {
+      try {
+        const { data, error } = await supabaseQuery;
+        if (cancelled) return;
+        if (!data || error) { setLoading(false); return; }
+        const rows = data.map((m) => {
+          const locations = Array.isArray(m.merchant_locations) ? (m.merchant_locations as Array<{ source?: string | null }>) : [];
+          const locationSources = locations.reduce<Record<string, number>>((acc, loc) => {
+            const source = loc.source || "manual";
+            acc[source] = (acc[source] ?? 0) + 1;
+            return acc;
+          }, {});
+          return {
+            id: m.id as string,
+            addresses_resolved_at: m.addresses_resolved_at as string | null,
+            image_url: m.image_url as string | null,
+            name: m.name as string,
+            normalized_name: m.normalized_name as string,
+            location_count: locations.length,
+            location_sources: locationSources,
+            scraped_addresses: Array.isArray(m.scraped_addresses)
+              ? (m.scraped_addresses as MerchantRow["scraped_addresses"])
+              : [],
+          };
+        });
+        setMerchants(rows);
+        setLoading(false);
+      } catch {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
   }, [debouncedQuery]);
 
   return (

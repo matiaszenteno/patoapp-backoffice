@@ -32,7 +32,8 @@ export function Login() {
       return;
     }
 
-    navigate("/clasificacion");
+    setLoading(false);
+    navigate("/inicio");
   };
 
   return (

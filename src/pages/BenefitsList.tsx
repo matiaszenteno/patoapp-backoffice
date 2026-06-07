@@ -35,18 +35,22 @@ export function BenefitsList() {
       .order("updated_at", { ascending: false });
 
     let data, error;
+    let more = false;
 
     if (search.trim()) {
+      const term = search.trim();
       const [byTitle, byMerchant] = await Promise.all([
-        base().ilike("title", `%${search.trim()}%`),
+        base().ilike("title", `%${term}%`).limit(500),
         supabase
           .from("benefits")
           .select("id, title, image_url, source_url, status, ends_at, issuers(name), merchants!inner(name,image_url), categories(name)")
           .order("updated_at", { ascending: false })
-          .ilike("merchants.name", `%${search.trim()}%`),
+          .ilike("merchants.name", `%${term}%`)
+          .limit(500),
       ]);
-      if (byTitle.error) { error = byTitle.error; }
-      else {
+      if (byTitle.error ?? byMerchant.error) {
+        error = byTitle.error ?? byMerchant.error;
+      } else {
         const seen = new Set<string>();
         const merged = [...(byTitle.data ?? []), ...(byMerchant.data ?? [])].filter((b) => {
           if (seen.has(b.id as string)) return false;
@@ -55,9 +59,11 @@ export function BenefitsList() {
         });
         const start = pageIndex * PAGE_SIZE;
         data = merged.slice(start, start + PAGE_SIZE);
+        more = merged.length > start + PAGE_SIZE;
       }
     } else {
       ({ data, error } = await base().range(pageIndex * PAGE_SIZE, (pageIndex + 1) * PAGE_SIZE - 1));
+      more = (data?.length ?? 0) === PAGE_SIZE;
     }
     setLoading(false);
 
@@ -81,7 +87,7 @@ export function BenefitsList() {
     }));
 
     setBenefits((prev) => (replace ? rows : [...prev, ...rows]));
-    setHasMore(rows.length === PAGE_SIZE);
+    setHasMore(more);
   }, []);
 
   useEffect(() => {
