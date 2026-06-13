@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 
@@ -89,15 +89,31 @@ export function BenefitsList() {
     load(query, 0, true);
   }, [query, load]);
 
-  const handleLoadMore = () => {
-    const next = page + 1;
-    setPage(next);
-    load(query, next, false);
-  };
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const root = scrollRef.current;
+    const sentinel = sentinelRef.current;
+    if (!root || !sentinel || !hasMore || loading) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          const next = page + 1;
+          setPage(next);
+          load(query, next, false);
+        }
+      },
+      { root, rootMargin: "300px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loading, page, query, load]);
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8 flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+    <div className="flex h-full flex-col mx-auto w-full max-w-5xl px-6 py-8 gap-4">
+      <div className="flex items-center justify-between shrink-0">
         <h1 className="text-xl font-bold text-stone-900">Beneficios</h1>
         <Link
           className="rounded-md bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-800"
@@ -114,16 +130,19 @@ export function BenefitsList() {
       ) : null}
 
       <input
-        className="rounded-md border border-stone-200 px-3 py-2 text-sm outline-none focus:border-stone-500 focus:ring-1 focus:ring-stone-300 text-stone-900 placeholder:text-stone-300"
+        className="shrink-0 rounded-md border border-stone-200 px-3 py-2 text-sm outline-none focus:border-stone-500 focus:ring-1 focus:ring-stone-300 text-stone-900 placeholder:text-stone-300"
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Buscar por título o merchant..."
         type="search"
         value={query}
       />
 
-      <div className="overflow-hidden rounded-lg border border-stone-200 bg-white">
+      <div
+        className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-stone-200 bg-white"
+        ref={scrollRef}
+      >
         <table className="w-full text-sm">
-          <thead className="border-b border-stone-200 bg-stone-50 text-left text-xs font-medium uppercase tracking-wide text-stone-500">
+          <thead className="sticky top-0 z-10 border-b border-stone-200 bg-stone-50 text-left text-xs font-medium uppercase tracking-wide text-stone-500">
             <tr>
               <th className="px-4 py-3">Foto</th>
               <th className="px-4 py-3">Merchant</th>
@@ -184,21 +203,13 @@ export function BenefitsList() {
             )}
           </tbody>
         </table>
+
+        {hasMore ? <div className="h-px" ref={sentinelRef} /> : null}
+
+        {loading ? (
+          <p className="py-3 text-center text-sm text-stone-400">Cargando...</p>
+        ) : null}
       </div>
-
-      {loading && (
-        <p className="text-center text-sm text-stone-400">Cargando...</p>
-      )}
-
-      {!loading && hasMore && (
-        <button
-          className="mx-auto text-sm font-medium text-stone-600 hover:underline"
-          onClick={handleLoadMore}
-          type="button"
-        >
-          Cargar más
-        </button>
-      )}
     </div>
   );
 }

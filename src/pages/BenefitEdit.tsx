@@ -366,7 +366,7 @@ export function BenefitEdit() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-6 py-8 flex flex-col gap-6">
+    <div className="h-full overflow-y-auto max-w-3xl mx-auto px-6 py-8 flex flex-col gap-6">
       <div className="flex items-center gap-3">
         <button
           className="text-sm text-stone-500 hover:text-stone-900"
