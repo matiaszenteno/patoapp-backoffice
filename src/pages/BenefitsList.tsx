@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 
@@ -25,6 +25,15 @@ export function BenefitsList() {
   const [loading, setLoading] = useState(false);
   const [queryError, setQueryError] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const loadingRef = useRef(loading);
+  const hasMoreRef = useRef(hasMore);
+  const pageRef = useRef(page);
+  loadingRef.current = loading;
+  hasMoreRef.current = hasMore;
+  pageRef.current = page;
 
   const load = useCallback(async (search: string, pageIndex: number, replace: boolean) => {
     setLoading(true);
@@ -95,14 +104,29 @@ export function BenefitsList() {
     load(query, 0, true);
   }, [query, load]);
 
-  const handleLoadMore = () => {
-    const next = page + 1;
+  const loadMore = useCallback(() => {
+    if (loadingRef.current || !hasMoreRef.current) return;
+    const next = pageRef.current + 1;
     setPage(next);
     load(query, next, false);
-  };
+  }, [load, query]);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) loadMore();
+      },
+      { root: scrollRef.current, rootMargin: "300px" }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [loadMore, hasMore]);
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8 flex flex-col gap-4">
+    <div ref={scrollRef} className="h-full overflow-y-auto">
+      <div className="max-w-5xl mx-auto px-6 py-8 flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-stone-900">Beneficios</h1>
         <Link
@@ -196,15 +220,8 @@ export function BenefitsList() {
         <p className="text-center text-sm text-stone-400">Cargando...</p>
       )}
 
-      {!loading && hasMore && (
-        <button
-          className="mx-auto text-sm font-medium text-stone-600 hover:underline"
-          onClick={handleLoadMore}
-          type="button"
-        >
-          Cargar más
-        </button>
-      )}
+      {hasMore && <div ref={sentinelRef} aria-hidden className="h-px" />}
+      </div>
     </div>
   );
 }

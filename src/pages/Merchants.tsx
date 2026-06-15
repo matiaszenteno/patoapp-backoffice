@@ -616,7 +616,8 @@ export function Merchants() {
   }, [debouncedQuery]);
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8 flex flex-col gap-5">
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-5xl mx-auto px-6 py-8 flex flex-col gap-5">
       <div>
         <h1 className="text-xl font-bold text-stone-900">Merchants</h1>
         <p className="mt-0.5 text-sm text-stone-500">Gestiona ubicaciones y operaciones por merchant.</p>
@@ -642,6 +643,7 @@ export function Merchants() {
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }

@@ -366,7 +366,8 @@ export function BenefitEdit() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-6 py-8 flex flex-col gap-6">
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-5xl mx-auto px-6 py-8 flex flex-col gap-6">
       <div className="flex items-center gap-3">
         <button
           className="text-sm text-stone-500 hover:text-stone-900"
@@ -449,7 +450,7 @@ export function BenefitEdit() {
           />
         </Field>
 
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
           <Field error={errors.issuer_id?.message} label="Emisor *">
             <select className={selectCls} {...register("issuer_id")}>
               {issuers.map((o) => (
@@ -626,6 +627,7 @@ export function BenefitEdit() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
