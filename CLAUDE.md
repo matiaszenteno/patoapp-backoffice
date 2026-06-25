@@ -29,7 +29,7 @@ viven en `patoapp-scrapers`.
 
 ## Plugins
 
-`code-review`, `code-simplifier`, `skill-creator` — declarados en `.claude/settings.json`.
+`code-review`, `code-simplifier`, `superpowers` — declarados en `.claude/settings.json`.
 
 ## Reglas base
 
