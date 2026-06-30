@@ -369,9 +369,13 @@ async function getFunctionErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function triggerRawReprocess(rawId: string, token: string) {
+// `force` solo es necesario cuando el raw ya está `published`: ahí la idempotencia del
+// pipeline saltearía el draft (no re-enriquece ni re-aplica la corrección). Para raws en
+// needs_review/failed/pending el draft entra a publicación igual, el task_cache sirve la IA
+// cacheada y la corrección la pisa como override — re-correr la IA con force sería gasto inútil.
+async function triggerRawReprocess(rawId: string, token: string, force: boolean) {
   const { data, error } = await supabase.functions.invoke("run-reprocess", {
-    body: { rawBenefitId: rawId, force: true },
+    body: { rawBenefitId: rawId, force },
     headers: { Authorization: `Bearer ${token}` },
   });
   const response = (data ?? null) as ReprocessResponse | null;
@@ -882,7 +886,8 @@ export function Clasificacion() {
       );
 
       try {
-        const runData = await triggerRawReprocess(rawId, token);
+        const forceReprocess = savingRow?.processing_status === "published";
+        const runData = await triggerRawReprocess(rawId, token, forceReprocess);
         setSavedToast({ merchant: savingMerchant, runUrl: runData.runUrl });
         removeFromQueue(rawId);
       } catch (reprocessError) {
