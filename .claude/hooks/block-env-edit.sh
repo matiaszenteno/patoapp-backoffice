@@ -1,24 +1,12 @@
 #!/usr/bin/env bash
-# Blocks direct edits to .env to prevent accidental secret exposure.
+# Blocks Read/Edit/Write access to .env to prevent accidental secret exposure.
 # .env.example is always allowed.
+# Registered on Read|Edit|Write in settings.json — matches on file_path only.
+# (Not wired to Bash: matching command text blocks innocuous commands that
+#  merely mention the filename, e.g. a commit message or grep.)
 input=$(cat)
-
-file=$(echo "$input" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('file_path',''))" 2>/dev/null || echo "")
-command=$(echo "$input" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('command',''))" 2>/dev/null || echo "")
-
-file_blocked=false
+file=$(echo "$input" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('file_path',''))" 2>/dev/null || echo "")
 if [[ "$file" =~ (^|/)\.env$ ]]; then
-    file_blocked=true
-fi
-
-cmd_blocked=false
-if [[ "$command" =~ (^|[[:space:]/])\.env([[:space:]]|$) ]]; then
-    if [[ "$command" != *".example"* ]]; then
-        cmd_blocked=true
-    fi
-fi
-
-if $file_blocked || $cmd_blocked; then
     echo "ERROR: .env is off-limits (CLAUDE.md). Document new variables in .env.example instead." >&2
     exit 2
 fi

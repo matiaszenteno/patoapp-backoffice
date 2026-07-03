@@ -1,0 +1,11 @@
+{
+  "_note": "Hook de learning desactivado en .claude/settings.json (2026-07-02). Este archivo NO es leído por Claude Code — es solo respaldo. Para reactivar, copiar el bloque dentro de la sección \"hooks\" de .claude/settings.json.",
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [{ "type": "command", "command": "bash .claude/hooks/capture-learning.sh" }]
+      }
+    ]
+  }
+}
