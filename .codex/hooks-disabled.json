@@ -1,0 +1,9 @@
+{
+  "_note": "Codex backup only; this file is not loaded. It mirrors the disabled Claude learning hook and needs payload-specific adaptation before activation.",
+  "claude_sources": [
+    ".claude/hooks/capture-learning.sh"
+  ],
+  "suggested_events": {
+    "capture-learning": "Stop"
+  }
+}
