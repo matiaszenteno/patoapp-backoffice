@@ -246,12 +246,10 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
     };
   }, [benefitSearch, selectedBenefit]);
 
-  // Autocomplete de usuarios contra profiles. NOTA: profiles.full_name es el único
-  // campo de nombre disponible; la tabla no tiene columna de email (vive en
-  // auth.users, no expuesto vía PostgREST) y su RLS actual solo permite
-  // auth.uid() = id, sin bypass para admin/backoffice. Este autocomplete solo
-  // funcionará en producción una vez exista una policy de lectura para
-  // is_developer_email() (o una función SECURITY DEFINER) sobre `profiles`.
+  // Autocomplete de usuarios vía RPC admin_search_profiles (SECURITY DEFINER,
+  // guardada por is_developer_email()): busca por nombre o correo y devuelve
+  // ambos, sin exponer profiles ni auth.users al browser. profiles.full_name
+  // puede ser null; el correo viene de auth.users.
   useEffect(() => {
     const term = userSearch.trim();
     if (term.length < 2) {
@@ -260,19 +258,18 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
     }
     let active = true;
     const handle = setTimeout(async () => {
-      const { data } = await supabase
-        .from("profiles")
-        .select("id, full_name")
-        .ilike("full_name", `%${term}%`)
-        .limit(10);
+      const { data } = await supabase.rpc("admin_search_profiles", {
+        search: term,
+        max_results: 10,
+      });
       if (!active) return;
       const already = new Set(selectedUsers.map((u) => u.id));
       setUserResults(
-        (data ?? [])
-          .filter((p) => !already.has(p.id as string))
+        ((data ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>)
+          .filter((p) => !already.has(p.id))
           .map((p) => ({
-            id: p.id as string,
-            label: `${(p.full_name as string | null) ?? "Sin nombre"} — sin correo disponible`,
+            id: p.id,
+            label: `${p.full_name ?? "Sin nombre"} — ${p.email ?? "sin correo"}`,
           })),
       );
     }, 250);
