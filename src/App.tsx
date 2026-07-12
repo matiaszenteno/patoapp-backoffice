@@ -11,6 +11,7 @@ import { Feedback } from "./pages/Feedback";
 import { Inicio } from "./pages/Inicio";
 import { Metricas } from "./pages/Metricas";
 import { Logs } from "./pages/Logs";
+import { Notificaciones } from "./pages/Notificaciones";
 
 export default function App() {
   return (
@@ -35,6 +36,7 @@ export default function App() {
           <Route path="/feedback" element={<Feedback />} />
           <Route path="/metricas" element={<Metricas />} />
           <Route path="/logs" element={<Logs />} />
+          <Route path="/notificaciones" element={<Notificaciones />} />
           <Route path="/scrapers" element={<Navigate replace to="/operaciones" />} />
           <Route path="/pipeline" element={<Navigate replace to="/operaciones" />} />
         </Route>

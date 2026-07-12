@@ -45,6 +45,11 @@ const ListIcon = ({ className }: IconProps) => (
     <path d="M8 6h12M8 12h12M8 18h12" /><path d="M4 6h.01M4 12h.01M4 18h.01" />
   </svg>
 );
+const BellIcon = ({ className }: IconProps) => (
+  <svg className={className} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+    <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" />
+  </svg>
+);
 const ChevronIcon = ({ className }: IconProps) => (
   <svg className={className} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
     <path d="m15 6-6 6 6 6" />
@@ -58,6 +63,7 @@ const NAV_ITEMS = [
   { to: "/merchants", label: "Merchants", icon: StoreIcon },
   { to: "/operaciones", label: "Operaciones", icon: CogIcon },
   { to: "/feedback", label: "Feedback", icon: ChatIcon },
+  { to: "/notificaciones", label: "Notificaciones", icon: BellIcon },
   { to: "/metricas", label: "Métricas", icon: ChartIcon },
   { to: "/logs", label: "Logs", icon: ListIcon },
 ];
