@@ -177,6 +177,7 @@ function CampaignsList({ campaigns, loading }: { campaigns: CampaignRow[]; loadi
 
 function CampaignForm({ onCreated }: { onCreated: () => void }) {
   const {
+    clearErrors,
     formState: { errors },
     handleSubmit,
     register,
@@ -291,6 +292,37 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
     setValue("benefit_id", "", { shouldValidate: true });
   };
 
+  const changeDestination = (next: FormValues["dest"]) => {
+    if (next !== "benefit") {
+      setSelectedBenefit(null);
+      setBenefitSearch("");
+      setBenefitResults([]);
+      setValue("benefit_id", "", { shouldValidate: false });
+      clearErrors("benefit_id");
+    }
+
+    if (next !== "feed") {
+      setValue("feedFilter", "none", { shouldValidate: false });
+      setValue("category_slug", "", { shouldValidate: false });
+      setValue("query", "", { shouldValidate: false });
+      clearErrors(["category_slug", "query"]);
+    }
+
+    setValue("dest", next, { shouldValidate: true });
+  };
+
+  const changeFeedFilter = (next: FormValues["feedFilter"]) => {
+    if (next !== "category") {
+      setValue("category_slug", "", { shouldValidate: false });
+      clearErrors("category_slug");
+    }
+    if (next !== "query") {
+      setValue("query", "", { shouldValidate: false });
+      clearErrors("query");
+    }
+    setValue("feedFilter", next, { shouldValidate: true });
+  };
+
   const addUser = (u: ProfileOption) => {
     const next = [...selectedUsers, u];
     setSelectedUsers(next);
@@ -392,7 +424,7 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
               <input
                 checked={dest === opt.value}
                 className="h-4 w-4"
-                onChange={() => setValue("dest", opt.value, { shouldValidate: true })}
+                onChange={() => changeDestination(opt.value)}
                 type="radio"
                 value={opt.value}
               />
@@ -458,7 +490,7 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
                   <input
                     checked={feedFilter === opt.value}
                     className="h-4 w-4"
-                    onChange={() => setValue("feedFilter", opt.value, { shouldValidate: true })}
+                    onChange={() => changeFeedFilter(opt.value)}
                     type="radio"
                   />
                   {opt.label}
