@@ -21,6 +21,9 @@ type MerchantRow = {
   normalized_name: string;
   location_count: number;
   location_sources: Record<string, number>;
+  // Estado del último name search. 'needs_location_review' = el pipeline no pudo linkear
+  // ubicación con seguridad (sin website conocida ni ancla) → resolver a mano acá.
+  google_places_search_status: string | null;
   scraped_addresses: Array<{ address?: string; captured_at?: string; source?: string }>;
 };
 
@@ -384,6 +387,11 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
           </span>
         </span>
         <div className="flex items-center gap-3">
+          {merchant.google_places_search_status === "needs_location_review" && (
+            <span className="rounded bg-amber-100 border border-amber-200 px-2 py-0.5 text-xs text-amber-700">
+              revisar ubicación
+            </span>
+          )}
           <span className="rounded bg-stone-100 border border-stone-200 px-2 py-0.5 text-xs text-stone-500">
             {locCount} {locCount === 1 ? "ubicación" : "ubicaciones"}
           </span>
@@ -557,6 +565,7 @@ export function Merchants() {
   const [merchants, setMerchants] = useState<MerchantRow[]>([]);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [reviewOnly, setReviewOnly] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -573,11 +582,17 @@ export function Merchants() {
 
     let supabaseQuery = supabase
       .from("merchants")
-      .select("id, name, normalized_name, image_url, scraped_addresses, addresses_resolved_at, merchant_locations(id,source)")
+      .select("id, name, normalized_name, image_url, scraped_addresses, addresses_resolved_at, google_places_search_status, merchant_locations(id,source)")
       .order("name");
 
     if (safeQ) {
       supabaseQuery = supabaseQuery.or(`name.ilike.%${safeQ}%,normalized_name.ilike.%${safeQ}%`);
+    }
+
+    // Cola de revisión manual: merchants que el name search dejó sin linkear por falta
+    // de señal segura (sin website ni ancla). Se resuelven con el editor de mapa de abajo.
+    if (reviewOnly) {
+      supabaseQuery = supabaseQuery.eq("google_places_search_status", "needs_location_review");
     }
 
     (async () => {
@@ -600,6 +615,7 @@ export function Merchants() {
             normalized_name: m.normalized_name as string,
             location_count: locations.length,
             location_sources: locationSources,
+            google_places_search_status: (m.google_places_search_status as string | null) ?? null,
             scraped_addresses: Array.isArray(m.scraped_addresses)
               ? (m.scraped_addresses as MerchantRow["scraped_addresses"])
               : [],
@@ -613,7 +629,7 @@ export function Merchants() {
     })();
 
     return () => { cancelled = true; };
-  }, [debouncedQuery]);
+  }, [debouncedQuery, reviewOnly]);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -630,6 +646,15 @@ export function Merchants() {
         type="search"
         value={query}
       />
+
+      <label className="flex items-center gap-2 text-sm text-stone-600">
+        <input
+          checked={reviewOnly}
+          onChange={(e) => setReviewOnly(e.target.checked)}
+          type="checkbox"
+        />
+        Solo merchants que necesitan revisión de ubicación
+      </label>
 
       {loading ? (
         <p className="text-sm text-stone-400">Cargando...</p>
