@@ -14,16 +14,42 @@ import { useIssuers } from "../lib/useIssuers";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+// scraped_benefits_raw aporta sólo la procedencia del scrape: de dónde salió y cuándo.
+// El contenido (y el estado del pipeline) vive en el draft embebido — es la fuente
+// canónica y evita que la lista y la card muestren nombres distintos para la misma fila.
+// raw_payload NO viaja acá: sólo lo necesita la card seleccionada, y se carga en
+// loadCardData para no arrastrar un jsonb por cada fila de la cola.
 type RawRow = {
   id: string;
   issuer_slug: string | null;
   source_url: string | null;
-  raw_payload: Record<string, unknown> | null;
   scraped_at: string | null;
-  processing_status: string | null;
-  benefit_id: string | null;
-  run_id: string | null;
+  benefit_ingestion_drafts: QueueDraft | QueueDraft[] | null;
+};
+
+// Lo mínimo del draft que necesita la lista. La card carga la fila completa aparte:
+// traer field_provenance y el resto acá encarecería la cola para todas las filas.
+type QueueDraft = {
+  draft_status: string;
+  draft: Record<string, unknown>;
   publication_blockers: string[] | null;
+  run_id: string | null;
+  benefit_id: string | null;
+};
+
+// PostgREST devuelve el recurso embebido como objeto o como array según cómo infiera
+// la cardinalidad de la relación. raw_benefit_id es PK de benefit_ingestion_drafts, así
+// que debería ser to-one, pero normalizamos por las dudas.
+const queueDraftOf = (row: RawRow): QueueDraft | null => {
+  const embedded = row.benefit_ingestion_drafts;
+  if (!embedded) return null;
+  return Array.isArray(embedded) ? embedded[0] ?? null : embedded;
+};
+
+const queueMerchantOf = (row: RawRow): string => {
+  const draft = queueDraftOf(row)?.draft;
+  const name = draft?.merchant_name ?? draft?.title;
+  return String(name ?? row.source_url ?? row.id);
 };
 
 type AiValues = {
@@ -70,6 +96,9 @@ type CardData = {
   runError: string | null;
   runDetails: RunDetails | null;
   draft: IngestionDraft | null;
+  // Lo que vio el scraper. Sólo se carga para la card abierta, para poder contrastarlo
+  // contra el draft en el panel "raw".
+  rawPayload: Record<string, unknown> | null;
   dataMode: "persisted" | "legacy" | "unsupported";
 };
 
@@ -674,11 +703,16 @@ export function Clasificacion() {
       setRows([]); setPageLoading(false); return;
     }
     setPageLoading(true);
-    const select = "id, issuer_slug, source_url, raw_payload, scraped_at, processing_status, benefit_id, run_id, publication_blockers";
+    const select = "id, issuer_slug, source_url, scraped_at";
+    const draftFields = "draft_status, draft, publication_blockers, run_id, benefit_id";
     const rowsQuery = rawParam
-      ? supabase.from("scraped_benefits_raw").select(select).eq("id", rawParam)
+      // Deep-link: join externo. Un raw sin draft todavía tiene que poder abrirse
+      // (cae en dataMode legacy); con !inner devolvería vacío y la URL se rompería.
+      ? supabase.from("scraped_benefits_raw")
+        .select(`${select}, benefit_ingestion_drafts(${draftFields})`)
+        .eq("id", rawParam)
       : supabase.from("scraped_benefits_raw")
-        .select(`${select}, benefit_ingestion_drafts!inner(draft_status)`)
+        .select(`${select}, benefit_ingestion_drafts!inner(${draftFields})`)
         .in("benefit_ingestion_drafts.draft_status", statusFilters)
         .order("scraped_at", { ascending: false });
     Promise.all([supabase.auth.getSession(), rowsQuery]).then(([{ data: sessionData }, { data: rowData, error }]) => {
@@ -702,7 +736,12 @@ export function Clasificacion() {
   const loadCardData = async (row: RawRow) => {
     setLoadingCards((prev) => new Set(prev).add(row.id));
 
-    const fallbackCardData: CardData = {
+    const queueDraft = queueDraftOf(row);
+    // raw_payload ya no viaja en la query de la cola; se resuelve acá para la card
+    // abierta y queda disponible para los fallbacks del catch.
+    let rawPayload: Record<string, unknown> | null = null;
+
+    const buildFallbackCardData = (): CardData => ({
       blockers: [],
       aiConfidence: [],
       aiValues: {},
@@ -711,16 +750,17 @@ export function Clasificacion() {
       correctionBaseContentHash: null,
       correctionBaseSchemaVersion: null,
       correctionBaseUpdatedAt: null,
-      runId: row.run_id ?? null,
+      runId: queueDraft?.run_id ?? null,
       runError: null,
       runDetails: null,
       draft: null,
+      rawPayload,
       dataMode: "legacy",
-    };
-    const fallbackForm: FormState = {
-      title: String(row.raw_payload?.title ?? row.raw_payload?.name ?? ""),
-      description_raw: String(row.raw_payload?.description ?? ""),
-      image_url: String(row.raw_payload?.image_url ?? ""),
+    });
+    const buildFallbackForm = (): FormState => ({
+      title: String(rawPayload?.title ?? rawPayload?.name ?? ""),
+      description_raw: String(rawPayload?.description ?? ""),
+      image_url: String(rawPayload?.image_url ?? ""),
       category_slug: "",
       channel: "",
       ai_description: "",
@@ -739,14 +779,14 @@ export function Clasificacion() {
       br_min_compra: "",
       br_cuotas_minimas: "",
       note: "",
-    };
+    });
 
     try {
-    const benefitQuery = row.benefit_id
-      ? supabase.from("benefits").select("title, description_raw, image_url, channel, ai_description, value_type, value, categories(slug)").eq("id", row.benefit_id).maybeSingle()
+    const benefitQuery = queueDraft?.benefit_id
+      ? supabase.from("benefits").select("title, description_raw, image_url, channel, ai_description, value_type, value, categories(slug)").eq("id", queueDraft.benefit_id).maybeSingle()
       : Promise.resolve({ data: null });
 
-    const [latestRunEventRes, enrichmentEventsRes, correctionRes, benefitRes, ingestionDraftRes] = await Promise.all([
+    const [latestRunEventRes, enrichmentEventsRes, correctionRes, benefitRes, ingestionDraftRes, rawPayloadRes] = await Promise.all([
       usePersistedIngestionDrafts
         ? Promise.resolve({ data: null })
         : supabase.from("benefit_processing_events")
@@ -775,7 +815,10 @@ export function Clasificacion() {
           .eq("raw_benefit_id", row.id)
           .maybeSingle()
         : Promise.resolve({ data: null, error: null }),
+      supabase.from("scraped_benefits_raw").select("raw_payload").eq("id", row.id).maybeSingle(),
     ]);
+
+    rawPayload = (rawPayloadRes.data?.raw_payload as Record<string, unknown> | null) ?? null;
 
     const enrichmentEvents = (enrichmentEventsRes.data ?? []) as Array<{
       confidence?: unknown;
@@ -798,12 +841,12 @@ export function Clasificacion() {
         : "unsupported";
     const blockers = dataMode === "persisted"
       ? ingestionDraft?.publication_blockers ?? []
-      : row.publication_blockers ?? [];
+      : queueDraft?.publication_blockers ?? [];
     const b = benefitRes.data as Record<string, unknown> | null;
     const enrichmentOutputs = enrichmentEvents
       .reduce<Record<string, unknown>>((acc, event) => ({ ...acc, ...(event.output_payload ?? {}) }), {});
     const aiConfidence = getLatestAiConfidence(enrichmentEvents);
-    const payload = row.raw_payload ?? {};
+    const payload = rawPayload ?? {};
     const nestedPayload = (payload.raw_payload && typeof payload.raw_payload === "object") ? (payload.raw_payload as Record<string, unknown>) : {};
     const aiValues: AiValues = {
       title: (b?.title as string | null) ?? (payload.title as string | undefined),
@@ -821,7 +864,8 @@ export function Clasificacion() {
     const correctionBaseContentHash = (correctionRes.data?.base_content_hash as string | null) ?? null;
     const correctionBaseSchemaVersion = (correctionRes.data?.base_draft_schema_version as string | null) ?? null;
     const correctionBaseUpdatedAt = (correctionRes.data?.base_draft_updated_at as string | null) ?? null;
-    const runId = row.run_id
+    const runId = queueDraft?.run_id
+      ?? ingestionDraft?.run_id
       ?? (latestRunEventRes.data?.run_id as string | null | undefined)
       ?? null;
     const { data: runDetailsData, error: runDetailsError } = runId
@@ -848,6 +892,7 @@ export function Clasificacion() {
         runError: runDetailsError?.message ?? null,
         runDetails,
         draft: ingestionDraft,
+        rawPayload,
         dataMode,
       },
     }));
@@ -885,8 +930,8 @@ export function Clasificacion() {
       : legacyInitial;
     setFormValues((prev) => ({ ...prev, [row.id]: initial }));
     } catch {
-      setCardData((prev) => ({ ...prev, [row.id]: fallbackCardData }));
-      setFormValues((prev) => ({ ...prev, [row.id]: fallbackForm }));
+      setCardData((prev) => ({ ...prev, [row.id]: buildFallbackCardData() }));
+      setFormValues((prev) => ({ ...prev, [row.id]: buildFallbackForm() }));
     } finally {
       setLoadingCards((prev) => { const s = new Set(prev); s.delete(row.id); return s; });
     }
@@ -929,7 +974,7 @@ export function Clasificacion() {
   };
 
   const handleIgnoreRaw = async (row: RawRow) => {
-    if (row.processing_status === "ignored") return;
+    if (queueDraftOf(row)?.draft_status === "ignored") return;
 
     const confirmed = window.confirm("¿Ignorar este raw? Se marcará como no-beneficio y saldrá de la cola de clasificación.");
     if (!confirmed) return;
@@ -950,7 +995,16 @@ export function Clasificacion() {
 
     setSaveResult((prev) => ({ ...prev, [row.id]: { ok: true, msg: "Raw ignorado." } }));
     if (statusFilters.includes("ignored")) {
-      setRows((prev) => prev.map((current) => current.id === row.id ? { ...current, processing_status: "ignored", publication_blockers: [] } : current));
+      setRows((prev) => prev.map((current) => {
+        if (current.id !== row.id) return current;
+        const draft = queueDraftOf(current);
+        return {
+          ...current,
+          benefit_ingestion_drafts: draft
+            ? { ...draft, draft_status: "ignored", publication_blockers: [] }
+            : current.benefit_ingestion_drafts,
+        };
+      }));
     } else {
       removeFromQueue(row.id);
     }
@@ -997,7 +1051,8 @@ export function Clasificacion() {
       if (vals.starts_at) cf.starts_at = vals.starts_at;
       if (vals.ends_at) cf.ends_at = vals.ends_at;
       const persistedDraft = cardData[rawId]?.dataMode === "persisted" ? cardData[rawId]?.draft : null;
-      const rawWasWaitingForReview = rows.find((row) => row.id === rawId)?.processing_status === "needs_review";
+      const rawRow = rows.find((row) => row.id === rawId);
+      const rawWasWaitingForReview = (rawRow ? queueDraftOf(rawRow)?.draft_status : null) === "needs_review";
       if (vals.resolve_needs_review || (!persistedDraft && rawWasWaitingForReview)) cf.needs_review = false;
       if (vals.value_type) cf.value_type = vals.value_type;
       const parsedValue = Number(vals.value);
@@ -1084,7 +1139,7 @@ export function Clasificacion() {
       setSaveResult((prev) => ({ ...prev, [rawId]: { ok: true, msg: "Corrección guardada. Solicitando reproceso…" } }));
 
       const savingRow = rows.find((r) => r.id === rawId);
-      const forceReprocess = savingRow?.processing_status === "published";
+      const forceReprocess = (savingRow ? queueDraftOf(savingRow)?.draft_status : null) === "published";
       const persistedCorrectedFields = savedCorrection.corrected_fields as Record<string, unknown>;
       const savedFields = getChangedCorrectionFields(
         cardData[rawId]?.existingCorrection ?? null,
@@ -1109,10 +1164,8 @@ export function Clasificacion() {
         return;
       }
 
-      const savingPayload = savingRow?.raw_payload ?? {};
-      const savingMerchant = String(
-        savingPayload.merchant_name ?? savingPayload.merchant ?? savingPayload.title ?? savingPayload.name ?? savingRow?.source_url ?? "beneficio",
-      );
+      // El toast nombra al comercio con el valor canónico del draft, igual que la lista.
+      const savingMerchant = savingRow ? queueMerchantOf(savingRow) : "beneficio";
 
       try {
         const runData = await triggerRawReprocess(reprocessBody, token);
@@ -1146,6 +1199,7 @@ export function Clasificacion() {
   // ─── Selected row derived state ─────────────────────────────────────────────
 
   const selectedRow = rows.find((r) => r.id === selectedId) ?? null;
+  const selectedDraftStatus = selectedRow ? queueDraftOf(selectedRow)?.draft_status ?? null : null;
   const data = selectedId ? cardData[selectedId] : null;
   const vals = selectedId ? formValues[selectedId] : null;
   const isLoadingCard = selectedId ? loadingCards.has(selectedId) : false;
@@ -1184,7 +1238,8 @@ export function Clasificacion() {
     return getCurrentValueSource({ aiValue, correctedFields, currentValue: vals[field] as string | boolean, field, rawValue });
   };
 
-  const payload = selectedRow?.raw_payload ?? {};
+  // El raw_payload de la card sale de cardData: la cola ya no lo trae por fila.
+  const payload = data?.rawPayload ?? {};
   const rawTitle = String(payload.title ?? payload.name ?? selectedRow?.source_url ?? selectedRow?.id ?? "");
   const rawDescription = String(payload.description_raw ?? payload.description ?? "");
   const rawImageUrl = String(payload.image_url ?? payload.merchant_image_url ?? "");
@@ -1257,16 +1312,18 @@ export function Clasificacion() {
             <p className="px-4 py-8 text-center text-xs text-stone-400">Sin beneficios por clasificar</p>
           )}
           {rows.map((row) => {
-            const rowPayload = row.raw_payload ?? {};
-            const rowTitle = String(rowPayload.title ?? rowPayload.name ?? row.source_url ?? row.id);
-            const rowMerchant = String(rowPayload.merchant_name ?? rowPayload.merchant ?? rowPayload.store_name ?? rowTitle);
+            // Etiqueta y tags salen del draft, la misma fuente que usa la card. Antes
+            // venían de raw_payload y podían mostrar el nombre sin normalizar.
+            const rowDraft = queueDraftOf(row);
+            const rowMerchant = queueMerchantOf(row);
             const issuerName = row.issuer_slug ? issuerNameBySlug.get(row.issuer_slug) ?? row.issuer_slug : "";
             const rowData = cardData[row.id];
             const isSelected = row.id === selectedId;
-            const rowBlockers = rowData?.blockers.length ? rowData.blockers : row.publication_blockers ?? [];
-            const rowTags = rowBlockers.length
+            const rowBlockers = rowData?.blockers.length ? rowData.blockers : rowDraft?.publication_blockers ?? [];
+            const rowStatus = rowDraft?.draft_status ?? null;
+            const rowTags: string[] = rowBlockers.length
               ? rowBlockers.map((b) => BLOCKER_LABELS[b] ?? b)
-              : row.processing_status ? [row.processing_status === "needs_review" ? "needs review" : row.processing_status] : [];
+              : rowStatus ? [rowStatus === "needs_review" ? "needs review" : rowStatus] : [];
             return (
               <div
                 className={`px-4 py-2.5 border-b border-stone-200 cursor-pointer transition-colors ${
@@ -1348,7 +1405,7 @@ export function Clasificacion() {
                       </span>
                     )}
                     <span className="bg-stone-100 text-stone-500 border border-stone-200 text-[10px] px-2 py-0.5 rounded font-medium">
-                      {selectedRow.processing_status ?? "—"}
+                      {selectedDraftStatus ?? "—"}
                     </span>
                     {unresolvedBlockers.length > 0 && (
                       <span className="bg-stone-100 text-stone-500 border border-stone-200 text-[10px] px-2 py-0.5 rounded font-medium">
@@ -1369,7 +1426,7 @@ export function Clasificacion() {
                   </button>
                   <button
                     className="border border-red-200 text-red-700 hover:border-red-300 hover:bg-red-50 disabled:opacity-40 text-xs font-medium px-3 py-1.5 rounded-md transition-colors"
-                    disabled={isSaving || isIgnoring || selectedRow.processing_status === "ignored"}
+                    disabled={isSaving || isIgnoring || selectedDraftStatus === "ignored"}
                     onClick={() => handleIgnoreRaw(selectedRow)}
                     type="button"
                   >
@@ -1728,7 +1785,7 @@ export function Clasificacion() {
                 </button>
                 <button
                   className="border border-red-200 text-red-700 hover:border-red-300 hover:bg-red-50 disabled:opacity-40 text-sm font-medium px-4 py-1.5 rounded-md transition-colors"
-                  disabled={isSaving || isIgnoring || selectedRow.processing_status === "ignored"}
+                  disabled={isSaving || isIgnoring || selectedDraftStatus === "ignored"}
                   onClick={() => handleIgnoreRaw(selectedRow)}
                   type="button"
                 >
