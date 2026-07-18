@@ -677,7 +677,10 @@ export function Clasificacion() {
     const select = "id, issuer_slug, source_url, raw_payload, scraped_at, processing_status, benefit_id, run_id, publication_blockers";
     const rowsQuery = rawParam
       ? supabase.from("scraped_benefits_raw").select(select).eq("id", rawParam)
-      : supabase.from("scraped_benefits_raw").select(select).in("processing_status", statusFilters).order("scraped_at", { ascending: false });
+      : supabase.from("scraped_benefits_raw")
+        .select(`${select}, benefit_ingestion_drafts!inner(draft_status)`)
+        .in("benefit_ingestion_drafts.draft_status", statusFilters)
+        .order("scraped_at", { ascending: false });
     Promise.all([supabase.auth.getSession(), rowsQuery]).then(([{ data: sessionData }, { data: rowData, error }]) => {
       setUserIdentifier(sessionData.session?.user.email ?? sessionData.session?.user.id ?? null);
       if (error) setPageError(error.message);
@@ -932,20 +935,16 @@ export function Clasificacion() {
     if (!confirmed) return;
 
     setIgnoring((prev) => new Set(prev).add(row.id));
-    const { data: updatedRows, error } = await supabase
-      .from("scraped_benefits_raw")
-      .update({ processing_status: "ignored", publication_blockers: [] })
-      .eq("id", row.id)
-      .select("id, processing_status");
+    // Ignorar escribe dos tablas (benefit_ingestion_drafts.draft_status + el mirror
+    // processing_status/publication_blockers en scraped_benefits_raw). Va por RPC para
+    // que sea atómico: desde acá serían dos requests y un fallo entremedio dejaría el
+    // raw fuera de la cola pero vivo como needs_review. El RPC además rechaza los raws
+    // que todavía no tienen draft canónico, y ese error cae en el branch de abajo.
+    const { error } = await supabase.rpc("mark_ingestion_draft_ignored", { p_raw_benefit_id: row.id });
     setIgnoring((prev) => { const s = new Set(prev); s.delete(row.id); return s; });
 
     if (error) {
       setSaveResult((prev) => ({ ...prev, [row.id]: { ok: false, msg: `No se pudo ignorar el raw: ${error.message}` } }));
-      return;
-    }
-
-    if (!updatedRows?.length) {
-      setSaveResult((prev) => ({ ...prev, [row.id]: { ok: false, msg: "No se pudo ignorar el raw: Supabase no devolvió filas actualizadas." } }));
       return;
     }
 
@@ -1229,7 +1228,7 @@ export function Clasificacion() {
           </div>
           {/* Status filters */}
           <div className="flex flex-wrap gap-1">
-            {["needs_review", "failed", "pending", "ignored"].map((status) => (
+            {["needs_review", "failed", "ignored"].map((status) => (
               <button
                 className={`rounded px-2 py-0.5 text-[10px] font-medium border transition-colors ${
                   statusFilters.includes(status)
