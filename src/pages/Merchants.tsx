@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
 import type { LatLng } from "leaflet";
 import { supabase } from "../lib/supabase";
+import { getFunctionErrorMessage } from "../lib/correctionReprocess";
 import { inputCls } from "../lib/styles";
 
 type LocationRow = {
@@ -253,7 +254,13 @@ function LocationEditor({
   );
 }
 
-function MerchantCard({ merchant }: { merchant: MerchantRow }) {
+function MerchantCard({
+  merchant,
+  onMerchantSaved,
+}: {
+  merchant: MerchantRow;
+  onMerchantSaved: (updated: MerchantRow) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [draftMerchant, setDraftMerchant] = useState({
     image_url: merchant.image_url ?? "",
@@ -356,10 +363,25 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
 
     setMerchantSaving(false);
     if (error) {
-      setMerchantResult(error.message);
+      // El body del 400 viaja en error.context; error.message solo trae el genérico
+      // "Edge Function returned a non-2xx status code".
+      setMerchantResult(await getFunctionErrorMessage(error));
       return;
     }
-    const result = data as { websiteChanged?: boolean } | null;
+    const result = data as { error?: string; websiteChanged?: boolean } | null;
+    if (result?.error) {
+      setMerchantResult(result.error);
+      return;
+    }
+
+    const website = draftMerchant.website.trim() || null;
+    onMerchantSaved({
+      ...merchant,
+      image_url: draftMerchant.image_url.trim() || null,
+      name,
+      normalized_name: normalizedName,
+      website,
+    });
     setMerchantResult(
       result?.websiteChanged
         ? "Merchant guardado. Website actualizada: se re-encolará el name search."
@@ -675,7 +697,13 @@ export function Merchants() {
       ) : (
         <div className="flex flex-col gap-2">
           {merchants.map((m) => (
-            <MerchantCard key={m.id} merchant={m} />
+            <MerchantCard
+              key={m.id}
+              merchant={m}
+              onMerchantSaved={(updated) =>
+                setMerchants((prev) => prev.map((row) => (row.id === updated.id ? updated : row)))
+              }
+            />
           ))}
           {merchants.length === 0 && (
             <p className="text-center text-sm text-stone-400">Sin resultados</p>
