@@ -2,6 +2,13 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { getFreshAccessToken } from "../lib/auth";
+import {
+  buildCorrectionReprocessBody,
+  type CorrectionReprocessResponse,
+  getChangedCorrectionFields,
+  getFunctionErrorMessage,
+  getReprocessFailureMessage,
+} from "../lib/correctionReprocess";
 import { inputCls, inputReqCls } from "../lib/styles";
 import { useIssuers } from "../lib/useIssuers";
 
@@ -82,12 +89,6 @@ type AiConfidence = {
   label: string;
   processor: string;
   reason: string | null;
-};
-
-type ReprocessResponse = {
-  error?: string;
-  runUrl?: string;
-  triggered?: boolean;
 };
 
 type FormState = {
@@ -462,28 +463,25 @@ function getUnresolvedCorrectionBlockers(blockers: string[], vals: FormState | n
   });
 }
 
-async function getFunctionErrorMessage(error: unknown) {
-  const context = (error as { context?: unknown }).context;
-  if (context instanceof Response) {
-    const body = await context.clone().json().catch(() => null) as { error?: unknown } | null;
-    if (typeof body?.error === "string") return body.error;
-  }
-  return error instanceof Error ? error.message : String(error);
-}
-
-// `force` solo es necesario cuando el raw ya está `published`: ahí la idempotencia del
-// pipeline saltearía el draft (no re-enriquece ni re-aplica la corrección). Para raws en
-// needs_review/failed/pending el draft entra a publicación igual, el task_cache sirve la IA
-// cacheada y la corrección la pisa como override — re-correr la IA con force sería gasto inútil.
-async function triggerRawReprocess(rawId: string, token: string, force: boolean) {
+// `force` conserva la intención del operador cuando el raw ya está publicado. El dispatcher
+// correctionOnly decide si puede reanudar desde el draft o si necesita el fallback completo.
+async function triggerRawReprocess(
+  body: NonNullable<ReturnType<typeof buildCorrectionReprocessBody>>,
+  token: string,
+) {
   const { data, error } = await supabase.functions.invoke("run-reprocess", {
-    body: { rawBenefitId: rawId, force },
+    body,
     headers: { Authorization: `Bearer ${token}` },
   });
-  const response = (data ?? null) as ReprocessResponse | null;
-  if (error) throw new Error(response?.error ?? await getFunctionErrorMessage(error));
+  const response = (data ?? null) as CorrectionReprocessResponse | null;
+  if (error) throw new Error(response?.error
+    ? getReprocessFailureMessage(response, response.error)
+    : await getFunctionErrorMessage(error));
   if (response?.triggered !== true) {
-    throw new Error(response?.error ?? "El servicio no confirmó que el beneficio se está reprocesando.");
+    throw new Error(getReprocessFailureMessage(
+      response,
+      "El servicio no confirmó que el beneficio se está reprocesando.",
+    ));
   }
   return response;
 }
@@ -661,7 +659,11 @@ export function Clasificacion() {
   const [ignoring, setIgnoring] = useState<Set<string>>(new Set());
   const [saveResult, setSaveResult] = useState<Record<string, { ok: boolean; msg: string }>>({});
   const [reprocessResult, setReprocessResult] = useState<Record<string, { loading: boolean; runUrl?: string; error?: string }>>({});
-  const [savedToast, setSavedToast] = useState<{ merchant: string; runUrl?: string } | null>(null);
+  const [savedToast, setSavedToast] = useState<{
+    merchant: string;
+    requestId?: string;
+    runUrl?: string;
+  } | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
   const [userIdentifier, setUserIdentifier] = useState<string | null>(null);
@@ -1055,20 +1057,24 @@ export function Clasificacion() {
       }
 
       setSaving((prev) => new Set(prev).add(rawId));
-      const { error } = await supabase.from("raw_benefit_corrections").upsert(
-        {
-          raw_benefit_id: rawId,
-          corrected_fields: cf,
-          corrected_by: correctedBy,
-          note: vals.note.trim() || null,
-          ...(persistedDraft ? {
-            base_content_hash: persistedDraft.source_content_hash,
-            base_draft_schema_version: persistedDraft.schema_version,
-            base_draft_updated_at: persistedDraft.updated_at,
-          } : {}),
-        },
-        { onConflict: "raw_benefit_id" },
-      );
+      const { data: savedCorrection, error } = await supabase
+        .from("raw_benefit_corrections")
+        .upsert(
+          {
+            raw_benefit_id: rawId,
+            corrected_fields: cf,
+            corrected_by: correctedBy,
+            note: vals.note.trim() || null,
+            ...(persistedDraft ? {
+              base_content_hash: persistedDraft.source_content_hash,
+              base_draft_schema_version: persistedDraft.schema_version,
+              base_draft_updated_at: persistedDraft.updated_at,
+            } : {}),
+          },
+          { onConflict: "raw_benefit_id" },
+        )
+        .select("corrected_fields")
+        .single();
 
       if (error) {
         setSaving((prev) => { const s = new Set(prev); s.delete(rawId); return s; });
@@ -1077,6 +1083,24 @@ export function Clasificacion() {
       }
 
       setSaveResult((prev) => ({ ...prev, [rawId]: { ok: true, msg: "Corrección guardada. Solicitando reproceso…" } }));
+
+      const savingRow = rows.find((r) => r.id === rawId);
+      const forceReprocess = savingRow?.processing_status === "published";
+      const persistedCorrectedFields = savedCorrection.corrected_fields as Record<string, unknown>;
+      const savedFields = getChangedCorrectionFields(
+        cardData[rawId]?.existingCorrection ?? null,
+        persistedCorrectedFields,
+      );
+      const reprocessBody = buildCorrectionReprocessBody(rawId, savedFields, forceReprocess);
+      if (!reprocessBody) {
+        setSaving((prev) => { const s = new Set(prev); s.delete(rawId); return s; });
+        setSaveResult((prev) => ({
+          ...prev,
+          [rawId]: { ok: true, msg: "Nota guardada. No cambió ningún campo del beneficio, por lo que no se inició un reproceso." },
+        }));
+        return;
+      }
+
       setReprocessResult((prev) => ({ ...prev, [rawId]: { loading: true } }));
 
       const token = await getFreshAccessToken();
@@ -1086,16 +1110,18 @@ export function Clasificacion() {
         return;
       }
 
-      const savingRow = rows.find((r) => r.id === rawId);
       const savingPayload = savingRow?.raw_payload ?? {};
       const savingMerchant = String(
         savingPayload.merchant_name ?? savingPayload.merchant ?? savingPayload.title ?? savingPayload.name ?? savingRow?.source_url ?? "beneficio",
       );
 
       try {
-        const forceReprocess = savingRow?.processing_status === "published";
-        const runData = await triggerRawReprocess(rawId, token, forceReprocess);
-        setSavedToast({ merchant: savingMerchant, runUrl: runData.runUrl });
+        const runData = await triggerRawReprocess(reprocessBody, token);
+        setSavedToast({
+          merchant: savingMerchant,
+          requestId: runData.requestId,
+          runUrl: runData.runUrl,
+        });
         removeFromQueue(rawId);
       } catch (reprocessError) {
         setReprocessResult((prev) => ({
@@ -1288,6 +1314,7 @@ export function Clasificacion() {
               {savedToast.runUrl && (
                 <> · <a className="underline" href={savedToast.runUrl} rel="noreferrer" target="_blank">Ver en GitHub Actions →</a></>
               )}
+              {savedToast.requestId && <> · referencia <code>{savedToast.requestId}</code></>}
             </span>
             <button
               className="text-emerald-600 hover:text-emerald-800 text-lg leading-none"
