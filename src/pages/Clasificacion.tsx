@@ -30,15 +30,40 @@ type AiValues = {
   value?: string;
 };
 
+type IngestionDraft = {
+  raw_benefit_id: string;
+  run_id: string | null;
+  benefit_id: string | null;
+  source_content_hash: string;
+  schema_version: string;
+  normalized_version: string | null;
+  draft_status: string;
+  draft: Record<string, unknown>;
+  field_provenance: Record<string, FieldProvenance> | null;
+  publication_blockers: string[] | null;
+  updated_at: string;
+};
+
+type FieldProvenance = {
+  source?: string;
+  processor?: string;
+  version?: string;
+};
+
 type CardData = {
   blockers: string[];
   aiConfidence: AiConfidence[];
   aiValues: AiValues;
   existingCorrection: Record<string, unknown> | null;
   existingNote: string | null;
+  correctionBaseContentHash: string | null;
+  correctionBaseSchemaVersion: string | null;
+  correctionBaseUpdatedAt: string | null;
   runId: string | null;
   runError: string | null;
   runDetails: RunDetails | null;
+  draft: IngestionDraft | null;
+  dataMode: "persisted" | "legacy";
 };
 
 type RunDetails = {
@@ -72,6 +97,8 @@ type FormState = {
   category_slug: string;
   channel: string;
   ai_description: string;
+  starts_at: string;
+  ends_at: string;
   resolve_needs_review: boolean;
   value_type: string;
   value: string;
@@ -86,6 +113,8 @@ type FormState = {
   br_cuotas_minimas: string;
   note: string;
 };
+
+const usePersistedIngestionDrafts = import.meta.env.VITE_USE_PERSISTED_INGESTION_DRAFTS === "true";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -292,6 +321,48 @@ function getCurrentValueSource({ aiValue, correctedFields, currentValue, field, 
   if (aiValue && currentValue === aiValue) return "IA";
   if (hasTextValue(rawValue) && currentValue === String(rawValue)) return "Raw";
   return "Sin guardar";
+}
+
+function formatProvenance(provenance: FieldProvenance | undefined) {
+  if (!provenance?.source) return undefined;
+  const label = provenance.source.replace(/_/g, " ");
+  return provenance.version ? `${label} · ${provenance.version}` : label;
+}
+
+function toDateInput(value: unknown) {
+  if (typeof value !== "string" || !value) return "";
+  return value.slice(0, 10);
+}
+
+function formFromDraft(draft: Record<string, unknown>, correction: Record<string, unknown> | null, note: string | null): FormState {
+  // El draft es el snapshot compuesto y canónico. Una corrección vigente sólo lo pisa
+  // después de cargarlo, nunca se vuelve a armar desde eventos del pipeline.
+  const values = { ...draft, ...(correction ?? {}) };
+  const rd = deserializeRedemptionDetails(values.redemption_details as Record<string, unknown> | null | undefined);
+  const br = deserializeBenefitRules(values.benefit_rules as Record<string, unknown> | null | undefined);
+  return {
+    title: String(values.title ?? ""),
+    description_raw: String(values.description_raw ?? ""),
+    image_url: String(values.image_url ?? ""),
+    category_slug: String(values.category_slug ?? ""),
+    channel: String(values.channel ?? ""),
+    ai_description: String(values.ai_description ?? ""),
+    starts_at: toDateInput(values.starts_at),
+    ends_at: toDateInput(values.ends_at),
+    resolve_needs_review: values.needs_review === false,
+    value_type: String(values.value_type ?? ""),
+    value: values.value == null ? "" : String(values.value),
+    redemption_method: String(values.redemption_method ?? ""),
+    rd_code: rd.code,
+    rd_url: rd.url,
+    br_max_cap: br.max_cap,
+    br_frequency: br.frequency,
+    br_dias_mode: br.dias_mode,
+    br_dias_validos: br.dias_validos,
+    br_min_compra: br.min_compra,
+    br_cuotas_minimas: br.cuotas_minimas,
+    note: note ?? "",
+  };
 }
 
 function getConfidence(event: { confidence?: unknown; output_payload: Record<string, unknown> | null }) {
@@ -601,9 +672,14 @@ export function Clasificacion() {
       aiValues: {},
       existingCorrection: null,
       existingNote: null,
+      correctionBaseContentHash: null,
+      correctionBaseSchemaVersion: null,
+      correctionBaseUpdatedAt: null,
       runId: row.run_id ?? null,
       runError: null,
       runDetails: null,
+      draft: null,
+      dataMode: "legacy",
     };
     const fallbackForm: FormState = {
       title: String(row.raw_payload?.title ?? row.raw_payload?.name ?? ""),
@@ -612,6 +688,8 @@ export function Clasificacion() {
       category_slug: "",
       channel: "",
       ai_description: "",
+      starts_at: "",
+      ends_at: "",
       resolve_needs_review: false,
       value_type: "",
       value: "",
@@ -632,23 +710,35 @@ export function Clasificacion() {
       ? supabase.from("benefits").select("title, description_raw, image_url, channel, ai_description, value_type, value, categories(slug)").eq("id", row.benefit_id).maybeSingle()
       : Promise.resolve({ data: null });
 
-    const [latestRunEventRes, enrichmentEventsRes, correctionRes, benefitRes] = await Promise.all([
-      supabase.from("benefit_processing_events")
+    const [latestRunEventRes, enrichmentEventsRes, correctionRes, benefitRes, ingestionDraftRes] = await Promise.all([
+      usePersistedIngestionDrafts
+        ? Promise.resolve({ data: null })
+        : supabase.from("benefit_processing_events")
         .select("run_id, created_at")
         .eq("raw_benefit_id", row.id)
         .not("run_id", "is", null)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
-      supabase.from("benefit_processing_events")
+      usePersistedIngestionDrafts
+        ? Promise.resolve({ data: [] })
+        : supabase.from("benefit_processing_events")
         .select("processor, output_payload, run_id, created_at, stage, status, confidence")
         .eq("raw_benefit_id", row.id)
         .eq("stage", "enrichment")
         .eq("status", "completed")
         .order("created_at", { ascending: false })
         .limit(20),
-      supabase.from("raw_benefit_corrections").select("corrected_fields, note").eq("raw_benefit_id", row.id).maybeSingle(),
+      // select(*) permite leer los metadatos de base cuando PR4 los agregue sin
+      // romper el rollout actual, donde esas columnas todavía no existen.
+      supabase.from("raw_benefit_corrections").select("*").eq("raw_benefit_id", row.id).maybeSingle(),
       Promise.race([benefitQuery, new Promise<{ data: null }>((resolve) => setTimeout(() => resolve({ data: null }), 4000))]),
+      usePersistedIngestionDrafts
+        ? supabase.from("benefit_ingestion_drafts")
+          .select("raw_benefit_id, run_id, benefit_id, source_content_hash, schema_version, normalized_version, draft_status, draft, field_provenance, publication_blockers, updated_at")
+          .eq("raw_benefit_id", row.id)
+          .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
     ]);
 
     const enrichmentEvents = (enrichmentEventsRes.data ?? []) as Array<{
@@ -661,7 +751,9 @@ export function Clasificacion() {
       status?: string | null;
     }>;
 
-    const blockers = row.publication_blockers ?? [];
+    const ingestionDraft = ingestionDraftRes.data as IngestionDraft | null;
+    const dataMode = ingestionDraft ? "persisted" : "legacy" as const;
+    const blockers = ingestionDraft?.publication_blockers ?? row.publication_blockers ?? [];
     const b = benefitRes.data as Record<string, unknown> | null;
     const enrichmentOutputs = enrichmentEvents
       .reduce<Record<string, unknown>>((acc, event) => ({ ...acc, ...(event.output_payload ?? {}) }), {});
@@ -681,6 +773,9 @@ export function Clasificacion() {
 
     const existing = (correctionRes.data?.corrected_fields as Record<string, unknown> | null) ?? null;
     const existingNote = (correctionRes.data?.note as string | null) ?? null;
+    const correctionBaseContentHash = (correctionRes.data?.base_content_hash as string | null) ?? null;
+    const correctionBaseSchemaVersion = (correctionRes.data?.base_draft_schema_version as string | null) ?? null;
+    const correctionBaseUpdatedAt = (correctionRes.data?.base_draft_updated_at as string | null) ?? null;
     const runId = row.run_id
       ?? (latestRunEventRes.data?.run_id as string | null | undefined)
       ?? null;
@@ -701,22 +796,28 @@ export function Clasificacion() {
         aiValues,
         existingCorrection: existing,
         existingNote,
+        correctionBaseContentHash,
+        correctionBaseSchemaVersion,
+        correctionBaseUpdatedAt,
         runId,
         runError: runDetailsError?.message ?? null,
         runDetails,
+        draft: ingestionDraft,
+        dataMode,
       },
     }));
 
     const rd = deserializeRedemptionDetails(existing?.redemption_details as Record<string, unknown> | null | undefined);
     const br = deserializeBenefitRules(existing?.benefit_rules as Record<string, unknown> | null | undefined);
-
-    const initial: FormState = {
+    const legacyInitial: FormState = {
       title: String(existing?.title ?? aiValues.title ?? ""),
       description_raw: String(existing?.description_raw ?? aiValues.description_raw ?? ""),
       image_url: String(existing?.image_url ?? aiValues.image_url ?? ""),
       category_slug: String(existing?.category_slug ?? aiValues.category_slug ?? ""),
       channel: String(existing?.channel ?? aiValues.channel ?? ""),
       ai_description: String(existing?.ai_description ?? aiValues.ai_description ?? ""),
+      starts_at: "",
+      ends_at: "",
       resolve_needs_review: existing?.needs_review === false || blockers.includes("needs_manual_review"),
       value_type: String(existing?.value_type ?? aiValues.value_type ?? ""),
       value: String(existing?.value ?? aiValues.value ?? ""),
@@ -731,6 +832,9 @@ export function Clasificacion() {
       br_cuotas_minimas: br.cuotas_minimas,
       note: existingNote ?? "",
     };
+    const initial = ingestionDraft
+      ? formFromDraft(ingestionDraft.draft, existing, existingNote)
+      : legacyInitial;
     setFormValues((prev) => ({ ...prev, [row.id]: initial }));
     } catch {
       setCardData((prev) => ({ ...prev, [row.id]: fallbackCardData }));
@@ -846,6 +950,8 @@ export function Clasificacion() {
       if (vals.category_slug) cf.category_slug = vals.category_slug;
       if (vals.channel) cf.channel = vals.channel;
       if (vals.ai_description.trim()) cf.ai_description = vals.ai_description.trim();
+      if (vals.starts_at) cf.starts_at = vals.starts_at;
+      if (vals.ends_at) cf.ends_at = vals.ends_at;
       const rawWasWaitingForReview = rows.find((row) => row.id === rawId)?.processing_status === "needs_review";
       if (vals.resolve_needs_review || rawWasWaitingForReview) cf.needs_review = false;
       if (vals.value_type) cf.value_type = vals.value_type;
@@ -942,15 +1048,22 @@ export function Clasificacion() {
   })));
   const canSaveCorrection = !!vals && !!data && unresolvedBlockers.length === 0;
 
-  const sourceFor = (field: keyof FormState, aiValue?: string, rawValue?: unknown) =>
-    vals ? getCurrentValueSource({ aiValue, correctedFields, currentValue: vals[field] as string | boolean, field, rawValue }) : undefined;
+  const sourceFor = (field: keyof FormState, aiValue?: string, rawValue?: unknown) => {
+    if (!vals) return undefined;
+    const correctionField = field === "resolve_needs_review" ? "needs_review" : field;
+    if (data?.draft && !hasOwnValue(correctedFields, correctionField)) {
+      const persistedSource = formatProvenance(data.draft.field_provenance?.[correctionField]);
+      if (persistedSource) return persistedSource;
+    }
+    return getCurrentValueSource({ aiValue, correctedFields, currentValue: vals[field] as string | boolean, field, rawValue });
+  };
 
   const payload = selectedRow?.raw_payload ?? {};
   const rawTitle = String(payload.title ?? payload.name ?? selectedRow?.source_url ?? selectedRow?.id ?? "");
   const rawDescription = String(payload.description_raw ?? payload.description ?? "");
   const rawImageUrl = String(payload.image_url ?? payload.merchant_image_url ?? "");
   const rawMerchant = String(payload.merchant_name ?? payload.merchant ?? "");
-  const headerMerchant = rawMerchant.trim() || vals?.title || rawTitle;
+  const headerMerchant = String(data?.draft?.draft.merchant_name ?? rawMerchant).trim() || vals?.title || rawTitle;
   const rawCategory = String(payload.category ?? payload.category_slug ?? "");
   const rawChannel = String(payload.channel ?? payload.modality ?? "");
   const rawValue = String(payload.value ?? payload.discount ?? payload.benefit ?? "");
@@ -1217,6 +1330,33 @@ export function Clasificacion() {
 
                   {vals && (
                     <div className="flex flex-col gap-0">
+                      {data?.draft ? (
+                        <div className="mb-4 rounded-md border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-600">
+                          <div className="flex flex-wrap gap-x-4 gap-y-1">
+                            <span><strong>Draft canónico</strong> · {data.draft.draft_status}</span>
+                            <span>actualizado {formatDateTime(data.draft.updated_at)}</span>
+                            <span>schema {data.draft.schema_version}</span>
+                            {data.draft.normalized_version && <span>normalizador {data.draft.normalized_version}</span>}
+                          </div>
+                          {data.correctionBaseContentHash && data.correctionBaseContentHash !== data.draft.source_content_hash && (
+                            <p className="mt-2 text-amber-800">La corrección fue creada sobre un raw anterior y puede requerir revisión.</p>
+                          )}
+                          {data.correctionBaseSchemaVersion && data.correctionBaseSchemaVersion !== data.draft.schema_version && (
+                            <p className="mt-1 text-amber-800">La corrección usa el schema {data.correctionBaseSchemaVersion}; el draft actual usa {data.draft.schema_version}.</p>
+                          )}
+                          {data.correctionBaseUpdatedAt && (
+                            <p className="mt-1 text-stone-500">Corrección basada en draft de {formatDateTime(data.correctionBaseUpdatedAt)}.</p>
+                          )}
+                        </div>
+                      ) : usePersistedIngestionDrafts ? (
+                        <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                          No existe un draft persistido para este raw. Se muestran datos legacy temporalmente; no son un snapshot canónico.
+                        </div>
+                      ) : (
+                        <div className="mb-4 rounded-md border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-500">
+                          Modo legacy activo: los valores se reconstruyen temporalmente desde el pipeline anterior.
+                        </div>
+                      )}
                       {(reviewReasons.length > 0 || aiConfidence.length > 0) && (
                         <div className="mb-4 rounded-md border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-600">
                           {reviewReasons.length > 0 && (
@@ -1347,6 +1487,12 @@ export function Clasificacion() {
                             )}
                           </Field>
                         </div>
+                        <Field label="Inicio" source={sourceFor("starts_at")}>
+                          <input className={compactInputCls} onChange={(e) => setField(selectedRow.id, "starts_at", e.target.value)} type="date" value={vals.starts_at} />
+                        </Field>
+                        <Field label="Término" source={sourceFor("ends_at")}>
+                          <input className={compactInputCls} onChange={(e) => setField(selectedRow.id, "ends_at", e.target.value)} type="date" value={vals.ends_at} />
+                        </Field>
                       </div>
 
                       <SectionTitle
