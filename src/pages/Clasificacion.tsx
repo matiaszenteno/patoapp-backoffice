@@ -63,7 +63,7 @@ type CardData = {
   runError: string | null;
   runDetails: RunDetails | null;
   draft: IngestionDraft | null;
-  dataMode: "persisted" | "legacy";
+  dataMode: "persisted" | "legacy" | "unsupported";
 };
 
 type RunDetails = {
@@ -115,6 +115,13 @@ type FormState = {
 };
 
 const usePersistedIngestionDrafts = import.meta.env.VITE_USE_PERSISTED_INGESTION_DRAFTS === "true";
+const SUPPORTED_INGESTION_DRAFT_SCHEMA = "2026-07-draft-v1";
+const DURABLE_CORRECTION_FIELDS = new Set([
+  "category_slug",
+  "merchant_id",
+  "merchant_name",
+  "merchant_normalized_name",
+]);
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -363,6 +370,30 @@ function formFromDraft(draft: Record<string, unknown>, correction: Record<string
     br_cuotas_minimas: br.cuotas_minimas,
     note: note ?? "",
   };
+}
+
+function correctionForDraft(
+  correction: Record<string, unknown> | null,
+  correctionBaseContentHash: string | null,
+  correctionBaseSchemaVersion: string | null,
+  draft: IngestionDraft,
+) {
+  if (!correction) return null;
+  const isAnchoredAndStale = (
+    correctionBaseContentHash !== null
+    && correctionBaseContentHash !== draft.source_content_hash
+  ) || (
+    correctionBaseSchemaVersion !== null
+    && correctionBaseSchemaVersion !== draft.schema_version
+  );
+  if (!isAnchoredAndStale) return correction;
+  return Object.fromEntries(
+    Object.entries(correction).filter(([field]) => DURABLE_CORRECTION_FIELDS.has(field)),
+  );
+}
+
+function sameCorrectionValue(left: unknown, right: unknown) {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 }
 
 function getConfidence(event: { confidence?: unknown; output_payload: Record<string, unknown> | null }) {
@@ -751,9 +782,18 @@ export function Clasificacion() {
       status?: string | null;
     }>;
 
+    if (usePersistedIngestionDrafts && ingestionDraftRes.error) {
+      throw new Error(`No se pudo leer el draft persistido: ${ingestionDraftRes.error.message}`);
+    }
     const ingestionDraft = ingestionDraftRes.data as IngestionDraft | null;
-    const dataMode = ingestionDraft ? "persisted" : "legacy" as const;
-    const blockers = ingestionDraft?.publication_blockers ?? row.publication_blockers ?? [];
+    const dataMode: CardData["dataMode"] = !ingestionDraft
+      ? "legacy"
+      : ingestionDraft.schema_version === SUPPORTED_INGESTION_DRAFT_SCHEMA
+        ? "persisted"
+        : "unsupported";
+    const blockers = dataMode === "persisted"
+      ? ingestionDraft?.publication_blockers ?? []
+      : row.publication_blockers ?? [];
     const b = benefitRes.data as Record<string, unknown> | null;
     const enrichmentOutputs = enrichmentEvents
       .reduce<Record<string, unknown>>((acc, event) => ({ ...acc, ...(event.output_payload ?? {}) }), {});
@@ -832,8 +872,11 @@ export function Clasificacion() {
       br_cuotas_minimas: br.cuotas_minimas,
       note: existingNote ?? "",
     };
-    const initial = ingestionDraft
-      ? formFromDraft(ingestionDraft.draft, existing, existingNote)
+    const applicableCorrection = ingestionDraft && dataMode === "persisted"
+      ? correctionForDraft(existing, correctionBaseContentHash, correctionBaseSchemaVersion, ingestionDraft)
+      : existing;
+    const initial = ingestionDraft && dataMode === "persisted"
+      ? formFromDraft(ingestionDraft.draft, applicableCorrection, existingNote)
       : legacyInitial;
     setFormValues((prev) => ({ ...prev, [row.id]: initial }));
     } catch {
@@ -952,8 +995,9 @@ export function Clasificacion() {
       if (vals.ai_description.trim()) cf.ai_description = vals.ai_description.trim();
       if (vals.starts_at) cf.starts_at = vals.starts_at;
       if (vals.ends_at) cf.ends_at = vals.ends_at;
+      const persistedDraft = cardData[rawId]?.dataMode === "persisted" ? cardData[rawId]?.draft : null;
       const rawWasWaitingForReview = rows.find((row) => row.id === rawId)?.processing_status === "needs_review";
-      if (vals.resolve_needs_review || rawWasWaitingForReview) cf.needs_review = false;
+      if (vals.resolve_needs_review || (!persistedDraft && rawWasWaitingForReview)) cf.needs_review = false;
       if (vals.value_type) cf.value_type = vals.value_type;
       const parsedValue = Number(vals.value);
       if (vals.value.trim() && Number.isFinite(parsedValue)) cf.value = parsedValue;
@@ -963,9 +1007,66 @@ export function Clasificacion() {
       const br = serializeBenefitRules(vals);
       if (br) cf.benefit_rules = br;
 
+      // En modo canónico sólo persisten overrides reales. Serializar el formulario
+      // completo convertiría cada campo del draft en una corrección manual permanente.
+      if (persistedDraft) {
+        const draftForm = formFromDraft(persistedDraft.draft, null, null);
+        const draftRules = serializeBenefitRules(draftForm);
+        if (!sameCorrectionValue(br, draftRules)) {
+          const mergedRules = {
+            ...((persistedDraft.draft.benefit_rules as Record<string, unknown> | null) ?? {}),
+          };
+          for (const field of ["max_cap", "frequency", "days", "min_purchase", "installments_count"]) {
+            delete mergedRules[field];
+          }
+          Object.assign(mergedRules, br ?? {});
+          cf.benefit_rules = mergedRules;
+        } else {
+          delete cf.benefit_rules;
+        }
+
+        const draftRedemption = serializeRedemptionDetails(
+          draftForm.redemption_method,
+          draftForm.rd_code,
+          draftForm.rd_url,
+        );
+        if (!sameCorrectionValue(rd, draftRedemption)) {
+          const methodChanged = vals.redemption_method !== draftForm.redemption_method;
+          const mergedRedemption = methodChanged
+            ? { ...(rd ?? {}) }
+            : {
+                ...((persistedDraft.draft.redemption_details as Record<string, unknown> | null) ?? {}),
+                ...(rd ?? {}),
+              };
+          for (const field of ["code", "url", "qr_url"]) {
+            if (!rd || !Object.prototype.hasOwnProperty.call(rd, field)) delete mergedRedemption[field];
+          }
+          cf.redemption_details = mergedRedemption;
+        } else {
+          delete cf.redemption_details;
+        }
+
+        if (!vals.starts_at && persistedDraft.draft.starts_at) cf.starts_at = null;
+        if (!vals.ends_at && persistedDraft.draft.ends_at) cf.ends_at = null;
+        for (const field of Object.keys(cf)) {
+          if (field === "benefit_rules" || field === "redemption_details") continue;
+          if (sameCorrectionValue(cf[field], persistedDraft.draft[field])) delete cf[field];
+        }
+      }
+
       setSaving((prev) => new Set(prev).add(rawId));
       const { error } = await supabase.from("raw_benefit_corrections").upsert(
-        { raw_benefit_id: rawId, corrected_fields: cf, corrected_by: correctedBy, note: vals.note.trim() || null },
+        {
+          raw_benefit_id: rawId,
+          corrected_fields: cf,
+          corrected_by: correctedBy,
+          note: vals.note.trim() || null,
+          ...(persistedDraft ? {
+            base_content_hash: persistedDraft.source_content_hash,
+            base_draft_schema_version: persistedDraft.schema_version,
+            base_draft_updated_at: persistedDraft.updated_at,
+          } : {}),
+        },
         { onConflict: "raw_benefit_id" },
       );
 
@@ -1046,12 +1147,12 @@ export function Clasificacion() {
     }
     return REVIEW_REASON_BY_BLOCKER[blocker] ?? `Falta resolver: ${BLOCKER_LABELS[blocker] ?? blocker}.`;
   })));
-  const canSaveCorrection = !!vals && !!data && unresolvedBlockers.length === 0;
+  const canSaveCorrection = !!vals && !!data && data.dataMode !== "unsupported" && unresolvedBlockers.length === 0;
 
   const sourceFor = (field: keyof FormState, aiValue?: string, rawValue?: unknown) => {
     if (!vals) return undefined;
     const correctionField = field === "resolve_needs_review" ? "needs_review" : field;
-    if (data?.draft && !hasOwnValue(correctedFields, correctionField)) {
+    if (data?.dataMode === "persisted" && data.draft && !hasOwnValue(correctedFields, correctionField)) {
       const persistedSource = formatProvenance(data.draft.field_provenance?.[correctionField]);
       if (persistedSource) return persistedSource;
     }
@@ -1063,7 +1164,9 @@ export function Clasificacion() {
   const rawDescription = String(payload.description_raw ?? payload.description ?? "");
   const rawImageUrl = String(payload.image_url ?? payload.merchant_image_url ?? "");
   const rawMerchant = String(payload.merchant_name ?? payload.merchant ?? "");
-  const headerMerchant = String(data?.draft?.draft.merchant_name ?? rawMerchant).trim() || vals?.title || rawTitle;
+  const headerMerchant = String(
+    data?.dataMode === "persisted" ? data.draft?.draft.merchant_name : rawMerchant,
+  ).trim() || vals?.title || rawTitle;
   const rawCategory = String(payload.category ?? payload.category_slug ?? "");
   const rawChannel = String(payload.channel ?? payload.modality ?? "");
   const rawValue = String(payload.value ?? payload.discount ?? payload.benefit ?? "");
@@ -1330,7 +1433,11 @@ export function Clasificacion() {
 
                   {vals && (
                     <div className="flex flex-col gap-0">
-                      {data?.draft ? (
+                      {data?.dataMode === "unsupported" && data.draft ? (
+                        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                          El draft usa el schema {data.draft.schema_version}, que esta versión del backoffice no soporta. La edición está bloqueada hasta actualizar el cliente.
+                        </div>
+                      ) : data?.dataMode === "persisted" && data.draft ? (
                         <div className="mb-4 rounded-md border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-600">
                           <div className="flex flex-wrap gap-x-4 gap-y-1">
                             <span><strong>Draft canónico</strong> · {data.draft.draft_status}</span>
