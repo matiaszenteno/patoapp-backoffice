@@ -935,9 +935,11 @@ export function Clasificacion() {
     if (!confirmed) return;
 
     setIgnoring((prev) => new Set(prev).add(row.id));
-    // La cola se filtra por benefit_ingestion_drafts.draft_status, que solo puede
-    // escribirse vía este RPC (RLS no da UPDATE directo al browser sobre esa tabla).
-    // Mirrorea el mismo draft_status + processing_status que usa el pipeline.
+    // Ignorar escribe dos tablas (benefit_ingestion_drafts.draft_status + el mirror
+    // processing_status/publication_blockers en scraped_benefits_raw). Va por RPC para
+    // que sea atómico: desde acá serían dos requests y un fallo entremedio dejaría el
+    // raw fuera de la cola pero vivo como needs_review. El RPC además rechaza los raws
+    // que todavía no tienen draft canónico, y ese error cae en el branch de abajo.
     const { error } = await supabase.rpc("mark_ingestion_draft_ignored", { p_raw_benefit_id: row.id });
     setIgnoring((prev) => { const s = new Set(prev); s.delete(row.id); return s; });
 
