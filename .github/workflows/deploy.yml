@@ -27,6 +27,9 @@ jobs:
 
       - run: npm ci
 
+      # Antes el deploy sólo construía: un test roto en main se publicaba igual.
+      - run: npm test
+
       - run: npm run build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}

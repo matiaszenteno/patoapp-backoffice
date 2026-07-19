@@ -1,0 +1,29 @@
+name: CI
+
+# El repo no tenía checks en los PRs: `npm test` y el typecheck sólo corrían en local,
+# así que un test roto entraba a main sin que nadie se enterara. El deploy tampoco
+# servía de red — corre recién en push a main y hasta ahora no ejecutaba los tests.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
+      # `npm run build` ya corre tsc, pero lo pedimos aparte para que un error de tipos
+      # se reporte como tal y no mezclado con un fallo de bundling.
+      - run: npx tsc --noEmit
