@@ -20,18 +20,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 24 para que `npm test` pueda correr los .ts (type stripping sin flag desde 23.6).
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - run: npm ci
+
+      # Antes el deploy sólo construía: un test roto en main se publicaba igual.
+      - run: npm test
 
       - run: npm run build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          VITE_USE_PERSISTED_INGESTION_DRAFTS: "true"
 
       - uses: actions/upload-pages-artifact@v3
         with:
