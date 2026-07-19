@@ -257,9 +257,11 @@ export function Clasificacion() {
         return;
       }
 
+      // Un vencido se desbloquea corrigiendo la vigencia, no declarándolo revisado: marcar
+      // needs_review=false ahí resolvería una revisión que nadie pidió.
       const cf = buildCorrectionFields({
         blockers: data.blockers,
-        confirmReview: task.confirmsReview || task.expired,
+        confirmReview: task.confirmsReview,
         draft,
         vals,
       });
