@@ -3,6 +3,8 @@
 // persisten los overrides reales — serializar el form entero convertiría cada campo del draft
 // en una corrección manual permanente.
 
+import type { FieldProvenance } from "./vocabulary.ts";
+
 export type FormState = {
   ai_description: string;
   br_cuotas_minimas: string;
@@ -30,7 +32,7 @@ export type IngestionDraft = {
   benefit_id: string | null;
   draft: Record<string, unknown>;
   draft_status: string;
-  field_provenance: Record<string, import("./vocabulary").FieldProvenance> | null;
+  field_provenance: Record<string, FieldProvenance> | null;
   normalized_version: string | null;
   publication_blockers: string[] | null;
   raw_benefit_id: string;
