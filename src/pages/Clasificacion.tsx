@@ -117,6 +117,10 @@ export function Clasificacion() {
     const select = "id, issuer_slug, source_url, raw_payload, scraped_at, processing_status, benefit_id, run_id, publication_blockers";
     const rowsQuery = rawParam
       ? supabase.from("scraped_benefits_raw").select(select).eq("id", rawParam)
+      // Se filtra por processing_status, no por el inner join a draft_status que trajo
+      // #35: este rediseño quiere que los raws sin draft aparezcan en la cola con un
+      // estado vacío honesto en vez de desaparecer sin explicación. Ver la sección
+      // "Borrado del camino legacy" del design doc.
       : supabase.from("scraped_benefits_raw").select(select)
         .in("processing_status", statusFilters)
         .order("scraped_at", { ascending: false });
@@ -419,7 +423,7 @@ export function Clasificacion() {
             <span className="text-[11px] text-stone-400">{rows.length}</span>
           </div>
           <div className="flex flex-wrap gap-1">
-            {["needs_review", "failed", "pending", "ignored"].map((status) => (
+            {["needs_review", "failed", "ignored"].map((status) => (
               <button
                 className={`rounded border px-2 py-0.5 text-[10px] font-medium transition-colors ${
                   statusFilters.includes(status)
