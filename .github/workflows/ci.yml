@@ -15,9 +15,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 24, no 20: `npm test` corre los .ts directo con node --test, y el type stripping
+      # recién viene sin flag desde 23.6. En 20 los tests fallan con
+      # ERR_UNKNOWN_FILE_EXTENSION — pasaban sólo en locales con Node nuevo.
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - run: npm ci
