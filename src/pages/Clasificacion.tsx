@@ -9,6 +9,7 @@ import {
   buildCorrectionFields,
   correctionForDraft,
   formFromDraft,
+  isCorrectionStale,
   type FormState,
   type IngestionDraft,
 } from "../lib/classification/draft";
@@ -44,6 +45,9 @@ type CardData = {
   correctionBaseSchemaVersion: string | null;
   draft: IngestionDraft | null;
   existingCorrection: Record<string, unknown> | null;
+  /** La lectura falló (red, RLS, timeout). Distinto de "no hay draft": acá no sabemos
+   *  si existe, así que no podemos afirmar que el pipeline no lo procesó. */
+  loadError: string | null;
   /** El schema del draft es más nuevo que el que este cliente sabe leer. */
   unsupported: boolean;
 };
@@ -166,6 +170,7 @@ export function Clasificacion() {
           correctionBaseSchemaVersion: baseSchemaVersion,
           draft,
           existingCorrection: existing,
+          loadError: null,
           unsupported,
         },
       }));
@@ -175,10 +180,23 @@ export function Clasificacion() {
         setFormValues((prev) => ({ ...prev, [row.id]: formFromDraft(draft.draft, applicable, note) }));
       }
     } catch (err) {
-      setSaveResult((prev) => ({
+      const msg = err instanceof Error ? err.message : String(err);
+      // Sin esto la ficha queda undefined y el render la confunde con "no hay draft",
+      // afirmándole al operador que el pipeline nunca procesó el raw cuando en realidad
+      // fue un error de lectura recuperable.
+      setCardData((prev) => ({
         ...prev,
-        [row.id]: { msg: err instanceof Error ? err.message : String(err), ok: false },
+        [row.id]: {
+          blockers: row.publication_blockers ?? [],
+          correctionBaseContentHash: null,
+          correctionBaseSchemaVersion: null,
+          draft: null,
+          existingCorrection: null,
+          loadError: msg,
+          unsupported: false,
+        },
       }));
+      setSaveResult((prev) => ({ ...prev, [row.id]: { msg, ok: false } }));
     } finally {
       setLoadingCards((prev) => { const s = new Set(prev); s.delete(row.id); return s; });
     }
@@ -206,22 +224,18 @@ export function Clasificacion() {
     if (!window.confirm("¿Descartar este raw? Se marcará como no-beneficio y saldrá de la cola.")) return;
 
     setIgnoring((prev) => new Set(prev).add(row.id));
-    const { data: updatedRows, error } = await supabase
-      .from("scraped_benefits_raw")
-      .update({ processing_status: "ignored", publication_blockers: [] })
-      .eq("id", row.id)
-      .select("id, processing_status");
+    // Descartar escribe dos tablas (benefit_ingestion_drafts.draft_status + el mirror
+    // processing_status/publication_blockers en scraped_benefits_raw). Va por RPC para
+    // que sea atómico: desde acá serían dos requests y un fallo entremedio dejaría el
+    // draft y el raw en desacuerdo. El RPC además rechaza los raws que todavía no
+    // tienen draft canónico — sin draft, el backfill del pipeline lo crea en
+    // 'needs_review' y pisa el 'ignored', o sea el descarte se deshace solo. Ese error
+    // cae en el branch de abajo y el operador lo ve.
+    const { error } = await supabase.rpc("mark_ingestion_draft_ignored", { p_raw_benefit_id: row.id });
     setIgnoring((prev) => { const s = new Set(prev); s.delete(row.id); return s; });
 
     if (error) {
       setSaveResult((prev) => ({ ...prev, [row.id]: { msg: `No se pudo descartar: ${error.message}`, ok: false } }));
-      return;
-    }
-    if (!updatedRows?.length) {
-      setSaveResult((prev) => ({
-        ...prev,
-        [row.id]: { msg: "No se pudo descartar: Supabase no devolvió filas actualizadas.", ok: false },
-      }));
       return;
     }
 
@@ -373,9 +387,11 @@ export function Clasificacion() {
     ?? "",
   );
   const issuerNameBySlug = new Map(issuers.map((issuer) => [issuer.slug, issuer.name]));
-  const staleCorrection = !!data?.draft
-    && !!data.correctionBaseContentHash
-    && data.correctionBaseContentHash !== data.draft.source_content_hash;
+  const staleCorrection = !!data?.draft && isCorrectionStale(
+    data.correctionBaseContentHash,
+    data.correctionBaseSchemaVersion,
+    data.draft,
+  );
 
   const onSave = () => {
     if (!selectedId) return;
@@ -536,6 +552,20 @@ export function Clasificacion() {
             <div className="flex-1 overflow-y-auto px-8 py-5">
               {isLoadingCard ? (
                 <p className="text-sm text-stone-400">Cargando datos…</p>
+              ) : data?.loadError ? (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+                  <p className="text-sm font-medium text-red-800">
+                    No se pudieron cargar los datos de este raw.
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-red-700">{data.loadError}</p>
+                  <button
+                    className="mt-2 text-xs font-medium text-red-800 underline"
+                    onClick={() => loadCardData(selectedRow)}
+                    type="button"
+                  >
+                    Reintentar
+                  </button>
+                </div>
               ) : !data?.draft ? (
                 <div className="rounded-lg border border-stone-200 bg-stone-50 px-4 py-3">
                   <p className="text-sm font-medium text-stone-800">
@@ -543,8 +573,9 @@ export function Clasificacion() {
                   </p>
                   <p className="mt-1 text-xs leading-relaxed text-stone-500">
                     No hay un snapshot canónico que corregir, así que no se puede clasificar desde
-                    acá. Podés revisar la entrada del scraper a la derecha y descartarlo si no es
-                    un beneficio.
+                    acá. Podés revisar la entrada del scraper a la derecha. Tampoco se puede
+                    descartar todavía: sin draft, el pipeline volvería a crearlo en revisión y el
+                    descarte se desharía solo.
                   </p>
                 </div>
               ) : data.unsupported ? (

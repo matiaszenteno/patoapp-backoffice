@@ -5,6 +5,7 @@ import {
   buildCorrectionFields,
   correctionForDraft,
   formFromDraft,
+  isCorrectionStale,
   type IngestionDraft,
 } from "../src/lib/classification/draft.ts";
 import { getChangedCorrectionFields } from "../src/lib/correctionReprocess.ts";
@@ -161,6 +162,30 @@ test("conserva la corrección entera cuando el raw no cambió", () => {
   );
 
   assert.deepEqual(fresh, { category_slug: "moda", channel: "online" });
+});
+
+test("recorta también cuando sólo cambió el schema, con el mismo content hash", () => {
+  const draft = makeDraft();
+  const stale = correctionForDraft(
+    { category_slug: "moda", channel: "online" },
+    "hash-actual",
+    "2026-06-draft-v0",
+    draft,
+  );
+
+  assert.deepEqual(stale, { category_slug: "moda" });
+});
+
+// El banner de la UI se derivaba de una copia de esta regla que sólo miraba el content
+// hash: un bump de schema recortaba la corrección sin avisarle al operador. Ahora ambos
+// salen de isCorrectionStale, así que este test cubre las dos.
+test("isCorrectionStale marca stale por hash, por schema, y no marca cuando ambos calzan", () => {
+  const draft = makeDraft();
+
+  assert.equal(isCorrectionStale("hash-viejo", "2026-07-draft-v1", draft), true);
+  assert.equal(isCorrectionStale("hash-actual", "2026-06-draft-v0", draft), true);
+  assert.equal(isCorrectionStale("hash-actual", "2026-07-draft-v1", draft), false);
+  assert.equal(isCorrectionStale(null, null, draft), false);
 });
 
 test("lee los días canónicos del draft como etiquetas del formulario", () => {

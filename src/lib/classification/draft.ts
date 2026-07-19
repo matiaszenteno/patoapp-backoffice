@@ -201,6 +201,23 @@ export function formFromDraft(
   };
 }
 
+/** ¿La corrección guardada quedó anclada a un raw o schema que ya cambió?
+ *
+ *  Única definición de "stale": la UI tiene que avisar exactamente cuando
+ *  correctionForDraft recorta. Estuvieron duplicadas y divergieron — la UI sólo miraba
+ *  el content hash, así que un bump de schema recortaba la corrección sin avisar. */
+export function isCorrectionStale(
+  baseContentHash: string | null,
+  baseSchemaVersion: string | null,
+  draft: IngestionDraft,
+): boolean {
+  return (
+    baseContentHash !== null && baseContentHash !== draft.source_content_hash
+  ) || (
+    baseSchemaVersion !== null && baseSchemaVersion !== draft.schema_version
+  );
+}
+
 /** Descarta la parte de una corrección que quedó anclada a un raw o schema que ya cambió.
  *  Sólo sobreviven los campos durables: el resto describía un texto que ya no existe. */
 export function correctionForDraft(
@@ -210,12 +227,7 @@ export function correctionForDraft(
   draft: IngestionDraft,
 ): Record<string, unknown> | null {
   if (!correction) return null;
-  const isAnchoredAndStale = (
-    baseContentHash !== null && baseContentHash !== draft.source_content_hash
-  ) || (
-    baseSchemaVersion !== null && baseSchemaVersion !== draft.schema_version
-  );
-  if (!isAnchoredAndStale) return correction;
+  if (!isCorrectionStale(baseContentHash, baseSchemaVersion, draft)) return correction;
   return Object.fromEntries(
     Object.entries(correction).filter(([field]) => DURABLE_CORRECTION_FIELDS.has(field)),
   );
