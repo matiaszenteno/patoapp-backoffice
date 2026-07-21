@@ -20,7 +20,7 @@ type RunState = {
 };
 
 type MainTab = "scrapers" | "pipeline";
-type PipelineTab = "reprocess" | "ai_descriptions" | "locations";
+type PipelineTab = "reprocess" | "enrich_merchants" | "ai_descriptions" | "locations";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -280,6 +280,71 @@ function ReprocessTab() {
   );
 }
 
+function EnrichMerchantsTab() {
+  const [limit, setLimit] = useState("100");
+  const [dryRun, setDryRun] = useState(true);
+  const [noReembed, setNoReembed] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setLoading(true); setResult(null); setError(null);
+    const token = await getToken();
+    if (!token) { setError("No autenticado."); setLoading(false); return; }
+    const { data, error: fnError } = await supabase.functions.invoke("run-enrich-merchants", {
+      body: { dryRun, noReembed, limit: Number(limit) },
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    setLoading(false);
+    if (fnError) { setError(fnError.message); return; }
+    setResult(data as Record<string, unknown>);
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <p className="text-sm text-stone-500">Enriquece comercios multiproducto con vocabulario del catálogo para mejorar la búsqueda semántica y vuelve a generar los embeddings de los beneficios afectados.</p>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wide text-stone-400">Máximo de comercios</label>
+          <input className={`${inputCls} w-full`} max={500} min={1} onChange={(e) => setLimit(e.target.value)} type="number" value={limit} />
+          <p className="text-xs text-stone-400">Máximo 500.</p>
+        </div>
+      </div>
+      <div className="flex flex-col gap-2">
+        {[
+          { val: dryRun, set: setDryRun, label: "Solo previsualizar", desc: "Lista los comercios candidatos sin llamar a la IA ni hacer cambios." },
+          { val: noReembed, set: setNoReembed, label: "Sin re-embed", desc: "Guarda el enriquecimiento pero omite volver a generar los embeddings." },
+        ].map(({ val, set, label, desc }) => (
+          <label key={label} className="flex cursor-pointer items-start gap-3 rounded-lg border border-stone-200 bg-white p-3 hover:bg-stone-50">
+            <input checked={val} className="mt-0.5 h-4 w-4 accent-stone-900" onChange={(e) => set(e.target.checked)} type="checkbox" />
+            <div>
+              <p className="text-sm font-medium text-stone-800">{label}</p>
+              <p className="text-xs text-stone-400">{desc}</p>
+            </div>
+          </label>
+        ))}
+      </div>
+      <div>
+        <button className="rounded-md bg-stone-900 px-5 py-2 text-sm font-medium text-white hover:bg-stone-800 disabled:opacity-50 transition-colors" disabled={loading} onClick={run} type="button">
+          {loading ? "Procesando…" : dryRun ? "Previsualizar" : "Enriquecer merchants"}
+        </button>
+        {error && <p className="mt-2 text-sm text-stone-500">{error}</p>}
+        {result && (
+          result.runUrl ? (
+            <div className="mt-3">
+              <p className="text-sm text-stone-600">Proceso iniciado.</p>
+              <a className="text-sm text-stone-500 underline hover:text-stone-800" href={result.runUrl as string} rel="noreferrer" target="_blank">Ver run en GitHub Actions →</a>
+            </div>
+          ) : (
+            <pre className="mt-3 overflow-auto rounded-lg bg-stone-50 border border-stone-200 p-3 text-xs text-stone-600">{JSON.stringify(result, null, 2)}</pre>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AiDescriptionsTab() {
   const [issuerSlug, setIssuerSlug] = useState("");
   const [limit, setLimit] = useState("50");
@@ -398,6 +463,7 @@ function LocationsTab() {
 
 const PIPELINE_TABS: { id: PipelineTab; label: string }[] = [
   { id: "reprocess", label: "Publicar pendientes" },
+  { id: "enrich_merchants", label: "Enriquecer merchants" },
   { id: "ai_descriptions", label: "Regenerar descripciones" },
   { id: "locations", label: "Ubicaciones" },
 ];
@@ -424,6 +490,7 @@ function PipelineContent() {
       </div>
       <div className="pt-6">
         {activeTab === "reprocess" && <ReprocessTab />}
+        {activeTab === "enrich_merchants" && <EnrichMerchantsTab />}
         {activeTab === "ai_descriptions" && <AiDescriptionsTab />}
         {activeTab === "locations" && <LocationsTab />}
       </div>
