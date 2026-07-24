@@ -35,6 +35,11 @@ const ChatIcon = ({ className }: IconProps) => (
     <path d="M4 5h16v11H8l-4 4z" />
   </svg>
 );
+const InboxIcon = ({ className }: IconProps) => (
+  <svg className={className} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+    <path d="M4 13h4l2 3h4l2-3h4" /><path d="M5 5h14l1 8v6H4v-6z" />
+  </svg>
+);
 const ChartIcon = ({ className }: IconProps) => (
   <svg className={className} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
     <path d="M4 20V4" /><path d="M4 20h16" /><path d="M8 16v-4m4 4V8m4 8v-6" />
@@ -63,6 +68,7 @@ const NAV_ITEMS = [
   { to: "/merchants", label: "Merchants", icon: StoreIcon },
   { to: "/operaciones", label: "Operaciones", icon: CogIcon },
   { to: "/feedback", label: "Feedback", icon: ChatIcon },
+  { to: "/app-feedback", label: "Feedback app", icon: InboxIcon },
   { to: "/notificaciones", label: "Notificaciones", icon: BellIcon },
   { to: "/metricas", label: "Métricas", icon: ChartIcon },
   { to: "/salud-beneficios", label: "Comparar catálogo", icon: ChartIcon },

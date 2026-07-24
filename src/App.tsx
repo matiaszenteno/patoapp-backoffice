@@ -8,6 +8,7 @@ import { Merchants } from "./pages/Merchants";
 import { Clasificacion } from "./pages/Clasificacion";
 import { Operaciones } from "./pages/Operaciones";
 import { Feedback } from "./pages/Feedback";
+import { AppFeedback } from "./pages/AppFeedback";
 import { Inicio } from "./pages/Inicio";
 import { Metricas } from "./pages/Metricas";
 import { Logs } from "./pages/Logs";
@@ -35,6 +36,7 @@ export default function App() {
           <Route path="/merchants" element={<Merchants />} />
           <Route path="/operaciones" element={<Operaciones />} />
           <Route path="/feedback" element={<Feedback />} />
+          <Route path="/app-feedback" element={<AppFeedback />} />
           <Route path="/metricas" element={<Metricas />} />
           <Route path="/logs" element={<Logs />} />
           <Route path="/salud-beneficios" element={<SaludBeneficios />} />
