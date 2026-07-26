@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useIssuers } from "../lib/useIssuers";
@@ -72,24 +72,32 @@ export function SaludBeneficios() {
   const [issuer, setIssuer] = useState("");
   const [onlyIssues, setOnlyIssues] = useState(true);
   const [verdicts, setVerdicts] = useState<string[]>([]);
+  const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<Page | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [selected, setSelected] = useState<Reconciliation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const requestId = useRef(0);
 
   const load = useCallback(async () => {
+    const currentRequest = ++requestId.current;
     setLoading(true); setError(null);
-    const args = { p_issuer_slug: issuer || null, p_verdicts: verdicts.length ? verdicts : null, p_only_issues: onlyIssues, p_limit: PAGE_SIZE, p_offset: 0 };
+    const args = { p_issuer_slug: issuer || null, p_verdicts: verdicts.length ? verdicts : null, p_only_issues: onlyIssues, p_limit: PAGE_SIZE, p_offset: offset };
     const [pageRes, summaryRes] = await Promise.all([supabase.rpc("get_benefit_scrape_reconciliation", args), supabase.rpc("get_benefit_scrape_reconciliation_summary", { p_issuer_slug: issuer || null })]);
+    if (currentRequest !== requestId.current) return;
     if (pageRes.error || summaryRes.error) setError(pageRes.error?.message ?? summaryRes.error?.message ?? "No se pudo cargar la salud.");
     else { setPage(pageRes.data as Page); setSummary(summaryRes.data as Summary); }
     setLoading(false);
-  }, [issuer, onlyIssues, verdicts]);
+  }, [issuer, offset, onlyIssues, verdicts]);
 
   useEffect(() => { void load(); }, [load]);
-  const toggle = (verdict: string) => setVerdicts((current) => current.includes(verdict) ? current.filter((item) => item !== verdict) : [...current, verdict]);
+  const resetPage = () => { requestId.current += 1; setOffset(0); setSelected(null); };
+  const toggle = (verdict: string) => {
+    resetPage();
+    setVerdicts((current) => current.includes(verdict) ? current.filter((item) => item !== verdict) : [...current, verdict]);
+  };
   const copyInvestigationPrompt = async () => {
     const gaps = (page?.rows ?? []).filter((row) => row.published_gap_fields?.length);
     const examples = gaps.slice(0, 25).map((row) => `- ${row.issuer_slug} | ${row.merchant_name} | ${row.title} | verdict=${row.verdict} | gaps=${row.published_gap_fields?.join(", ")}`).join("\n") || "- No hay gaps de publicación en los resultados visibles.";
@@ -102,11 +110,11 @@ export function SaludBeneficios() {
   return <div className="h-full overflow-y-auto px-8 py-8"><div className="mx-auto max-w-7xl">
     <div className="mb-6 flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-lg font-semibold text-stone-900">Salud de beneficios</h1><p className="mt-0.5 text-sm text-stone-500">Publicado versus la última información de los scrapers.</p></div><div className="flex gap-2"><button className="rounded-md border border-stone-300 bg-white px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50 disabled:opacity-50" disabled={!page || loading} onClick={() => void copyInvestigationPrompt()} type="button">{copied ? "Prompt copiado" : "Copiar prompt de investigación"}</button><button className="rounded-md bg-stone-900 px-4 py-2 text-sm font-medium text-white hover:bg-stone-800 disabled:opacity-50" disabled={loading} onClick={() => void load()} type="button">{loading ? "Cargando…" : "Refrescar"}</button></div></div>
     <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4"><div className="rounded-lg border border-stone-200 bg-white p-4"><p className="text-xs text-stone-400">Activos auditados</p><p className="text-2xl font-semibold">{summary?.total ?? "—"}</p></div><div className="rounded-lg border border-amber-200 bg-amber-50 p-4"><p className="text-xs text-amber-700">Con brechas publicadas</p><p className="text-2xl font-semibold text-amber-800">{summary?.published_gaps ?? "—"}</p></div>{["raw_not_published", "unverified_failed_rescrape"].map((v) => <div className="rounded-lg border border-stone-200 bg-white p-4" key={v}><p className="text-xs text-stone-400">{LABELS[v]}</p><p className="text-2xl font-semibold">{summary?.verdicts?.[v] ?? 0}</p></div>)}</div>
-    <div className="mb-4 flex flex-wrap items-center gap-3"><select className="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm" onChange={(e) => setIssuer(e.target.value)} value={issuer}><option value="">Todos los emisores</option>{issuers.map((i) => <option key={i.slug} value={i.slug}>{i.name}</option>)}</select><label className="flex items-center gap-2 text-sm text-stone-600"><input checked={onlyIssues} className="accent-stone-900" onChange={(e) => setOnlyIssues(e.target.checked)} type="checkbox" />Ocultar OK</label></div>
+    <div className="mb-4 flex flex-wrap items-center gap-3"><select className="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm" onChange={(e) => { resetPage(); setIssuer(e.target.value); }} value={issuer}><option value="">Todos los emisores</option>{issuers.map((i) => <option key={i.slug} value={i.slug}>{i.name}</option>)}</select><label className="flex items-center gap-2 text-sm text-stone-600"><input checked={onlyIssues} className="accent-stone-900" onChange={(e) => { resetPage(); setOnlyIssues(e.target.checked); }} type="checkbox" />Ocultar OK</label></div>
     <div className="mb-4 flex flex-wrap gap-2">{VERDICTS.map((v) => <button className={`rounded-full border px-3 py-1 text-xs ${verdicts.includes(v) ? "border-stone-900 bg-stone-900 text-white" : "border-stone-200 bg-white text-stone-600"}`} key={v} onClick={() => toggle(v)} type="button">{LABELS[v] ?? v} {summary?.verdicts?.[v] ? `(${summary.verdicts[v]})` : ""}</button>)}</div>
     {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
     <div className="overflow-hidden rounded-lg border border-stone-200 bg-white"><table className="w-full text-sm"><thead><tr className="border-b border-stone-100 bg-stone-50 text-left"><th className="px-4 py-3 text-xs text-stone-400">Emisor</th><th className="px-4 py-3 text-xs text-stone-400">Beneficio</th><th className="px-4 py-3 text-xs text-stone-400">Estado</th><th className="px-4 py-3 text-xs text-stone-400">Visto</th></tr></thead><tbody className="divide-y divide-stone-100">{page?.rows.map((row) => <tr className="cursor-pointer hover:bg-stone-50" key={row.benefit_id} onClick={() => setSelected(row)}><td className="px-4 py-3 text-stone-500">{row.issuer_slug}</td><td className="px-4 py-3"><p className="font-medium text-stone-800">{row.merchant_name}</p><p className="max-w-md truncate text-xs text-stone-400">{row.title}</p>{row.published_gap_fields?.length ? <p className="mt-1 text-xs text-amber-700">Brecha: {row.published_gap_fields.join(", ")}</p> : null}</td><td className="px-4 py-3"><Badge verdict={row.verdict} /></td><td className="px-4 py-3 whitespace-nowrap text-stone-500">{formatDate(row.last_seen_at)}</td></tr>)}{!loading && !page?.rows.length ? <tr><td className="px-4 py-8 text-center text-stone-400" colSpan={4}>Sin beneficios para estos filtros.</td></tr> : null}</tbody></table></div>
-    {page && page.total > page.rows.length ? <p className="mt-3 text-xs text-stone-400">Mostrando {page.rows.length} de {page.total}. Acota los filtros para inspeccionar otros resultados.</p> : null}
+    {page ? <div className="mt-3 flex items-center justify-between gap-3 text-xs text-stone-400"><p>Mostrando {page.rows.length ? offset + 1 : 0}–{offset + page.rows.length} de {page.total}.</p><div className="flex gap-2"><button className="rounded border border-stone-300 bg-white px-3 py-1 text-stone-600 hover:bg-stone-50 disabled:opacity-50" disabled={loading || offset === 0} onClick={() => { setSelected(null); setOffset((current) => Math.max(0, current - PAGE_SIZE)); }} type="button">Anterior</button><button className="rounded border border-stone-300 bg-white px-3 py-1 text-stone-600 hover:bg-stone-50 disabled:opacity-50" disabled={loading || offset + page.rows.length >= page.total} onClick={() => { setSelected(null); setOffset((current) => current + PAGE_SIZE); }} type="button">Siguiente</button></div></div> : null}
     {selected ? <Detail onClose={() => setSelected(null)} row={selected} /> : null}
   </div></div>;
 }
