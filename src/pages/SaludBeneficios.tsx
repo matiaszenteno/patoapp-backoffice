@@ -41,7 +41,7 @@ type Summary = {
 };
 
 const PAGE_SIZE = 100;
-const VERDICTS = ["raw_missing", "no_completed_run", "absent_from_last_run", "raw_drift", "location_drift", "ok"];
+const VERDICTS = ["raw_missing", "no_completed_run", "absent_from_last_run", "raw_drift", "location_drift", "duplicate_source_urls", "ok"];
 const LABELS: Record<string, string> = {
   ok: "Perfecto",
   raw_missing: "Sin raw vinculado",
@@ -49,6 +49,7 @@ const LABELS: Record<string, string> = {
   absent_from_last_run: "Ausente de la última corrida",
   raw_drift: "Datos distintos",
   location_drift: "Direcciones distintas",
+  duplicate_source_urls: "Dos URLs al mismo beneficio",
 };
 
 function formatDate(value: string | null) {
