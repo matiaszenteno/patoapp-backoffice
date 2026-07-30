@@ -11,29 +11,44 @@ type Reconciliation = {
   raw_status: string | null;
   last_seen_at: string | null;
   days_since_seen: number | null;
+  issuer_last_scrape_run_id: string | null;
   issuer_last_scrape_at: string | null;
+  issuer_last_scrape_finished_at: string | null;
   issuer_last_scrape_status: string | null;
-  issuer_last_success_at: string | null;
-  came_in_last_success: boolean | null;
-  state_published: boolean | null;
-  has_draft: boolean | null;
-  publish_drift_fields: string[] | null;
+  came_in_last_run: boolean | null;
+  raw_match: boolean | null;
+  raw_drift_fields: string[] | null;
   published_gap_fields: string[] | null;
-  source_drift_fields: string[] | null;
-  correction_drift_fields: string[] | null;
+  raw_address_count: number | null;
+  published_address_count: number | null;
   address_match: boolean | null;
+  missing_published_addresses: string[] | null;
+  extra_published_addresses: string[] | null;
   verdict: string;
 };
 
 type Page = { total: number; rows: Reconciliation[] };
-type Summary = { total: number; published_gaps: number; verdicts: Record<string, number> };
+type Summary = {
+  total: number;
+  healthy: number;
+  issues: number;
+  health_percentage: number;
+  present_in_last_run: number;
+  raw_matches: number;
+  address_matches: number;
+  published_gaps: number;
+  verdicts: Record<string, number>;
+};
 
 const PAGE_SIZE = 100;
-const VERDICTS = ["raw_missing", "raw_not_published", "no_draft", "never_succeeded", "absent_from_last_success", "unverified_failed_rescrape", "publish_drift", "source_drift", "correction_drift", "address_drift", "ok"];
+const VERDICTS = ["raw_missing", "no_completed_run", "absent_from_last_run", "raw_drift", "location_drift", "ok"];
 const LABELS: Record<string, string> = {
-  ok: "OK", unverified_failed_rescrape: "Re-scrape fallido", absent_from_last_success: "Ausente", never_succeeded: "Sin corrida exitosa",
-  raw_not_published: "Raw no publicado", raw_missing: "Raw faltante", no_draft: "Sin draft", publish_drift: "Drift de publicación",
-  source_drift: "Drift de origen", correction_drift: "Drift de corrección", address_drift: "Direcciones",
+  ok: "Perfecto",
+  raw_missing: "Sin raw vinculado",
+  no_completed_run: "Sin corrida terminada",
+  absent_from_last_run: "Ausente de la última corrida",
+  raw_drift: "Datos distintos",
+  location_drift: "Direcciones distintas",
 };
 
 function formatDate(value: string | null) {
@@ -41,13 +56,18 @@ function formatDate(value: string | null) {
 }
 
 function Badge({ verdict }: { verdict: string }) {
-  const cls = verdict === "ok" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : verdict === "unverified_failed_rescrape" ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-red-50 text-red-700 border-red-200";
+  const cls = verdict === "ok" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-red-50 text-red-700 border-red-200";
   return <span className={`inline-flex rounded border px-2 py-0.5 text-xs font-medium ${cls}`}>{LABELS[verdict] ?? verdict}</span>;
 }
 
 function Fields({ label, fields }: { label: string; fields: string[] | null }) {
   if (!fields?.length) return null;
   return <div><p className="text-xs font-semibold uppercase tracking-wide text-stone-400">{label}</p><p className="mt-1 text-sm text-stone-700">{fields.join(", ")}</p></div>;
+}
+
+function Addresses({ label, addresses }: { label: string; addresses: string[] | null }) {
+  if (!addresses?.length) return null;
+  return <div><p className="text-xs font-semibold uppercase tracking-wide text-stone-400">{label}</p><ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-stone-700">{addresses.map((address) => <li key={address}>{address}</li>)}</ul></div>;
 }
 
 function Detail({ row, onClose }: { row: Reconciliation; onClose: () => void }) {
@@ -57,11 +77,11 @@ function Detail({ row, onClose }: { row: Reconciliation; onClose: () => void }) 
     <aside className="relative z-50 flex h-full w-full max-w-md flex-col gap-5 overflow-y-auto border-l border-stone-200 bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
       <div className="flex items-start justify-between gap-4"><div><p className="text-xs text-stone-400">{row.issuer_slug}</p><h2 className="text-base font-semibold text-stone-900">{row.merchant_name}</h2><p className="text-sm text-stone-500">{row.title}</p></div><button className="text-sm text-stone-500 hover:text-stone-900" onClick={onClose} type="button">Cerrar</button></div>
       <Badge verdict={row.verdict} />
-      {row.published_gap_fields?.length ? <div className="rounded-md border border-amber-200 bg-amber-50 p-3"><p className="text-sm font-medium text-amber-800">Brechas de publicación</p><p className="mt-1 text-sm text-amber-700">{row.published_gap_fields.join(", ")}</p></div> : null}
-      <Fields label="Drift publicado ↔ draft" fields={row.publish_drift_fields} />
-      <Fields label="Drift draft ↔ origen" fields={row.source_drift_fields} />
-      <Fields label="Drift de corrección" fields={row.correction_drift_fields} />
-      <div className="grid grid-cols-2 gap-4 text-sm"><div><p className="text-xs text-stone-400">Raw</p><p>{row.raw_status ?? "—"}</p></div><div><p className="text-xs text-stone-400">Última vez visto</p><p>{formatDate(row.last_seen_at)}</p></div><div><p className="text-xs text-stone-400">Último scrape</p><p>{row.issuer_last_scrape_status ?? "—"}</p></div><div><p className="text-xs text-stone-400">Última corrida exitosa</p><p>{formatDate(row.issuer_last_success_at)}</p></div><div><p className="text-xs text-stone-400">Vino en última exitosa</p><p>{row.came_in_last_success ? "Sí" : "No"}</p></div><div><p className="text-xs text-stone-400">Direcciones</p><p>{row.address_match === null ? "No aplica" : row.address_match ? "OK" : "Sin match"}</p></div></div>
+      {row.published_gap_fields?.length ? <div className="rounded-md border border-amber-200 bg-amber-50 p-3"><p className="text-sm font-medium text-amber-800">Datos que trajo el scraper y faltan publicados</p><p className="mt-1 text-sm text-amber-700">{row.published_gap_fields.join(", ")}</p></div> : null}
+      <Fields label="Datos distintos del raw" fields={row.raw_drift_fields} />
+      <Addresses label="Direcciones que faltan publicar" addresses={row.missing_published_addresses} />
+      <Addresses label="Direcciones publicadas que sobran" addresses={row.extra_published_addresses} />
+      <div className="grid grid-cols-2 gap-4 text-sm"><div><p className="text-xs text-stone-400">Estado del raw</p><p>{row.raw_status ?? "—"} <span className="text-stone-400">(informativo)</span></p></div><div><p className="text-xs text-stone-400">Última vez visto</p><p>{formatDate(row.last_seen_at)}</p></div><div><p className="text-xs text-stone-400">Último scrape terminado</p><p>{row.issuer_last_scrape_status ?? "—"}</p><p className="text-xs text-stone-400">{formatDate(row.issuer_last_scrape_finished_at)}</p></div><div><p className="text-xs text-stone-400">Vino en esa corrida</p><p>{row.came_in_last_run === null ? "No evaluable" : row.came_in_last_run ? "Sí" : "No"}</p></div><div><p className="text-xs text-stone-400">Datos crudos</p><p>{row.raw_match === null ? "No evaluable" : row.raw_match ? "Coinciden" : "Distintos"}</p></div><div><p className="text-xs text-stone-400">Direcciones</p><p>{row.address_match === null ? "No evaluable" : row.address_match ? "Coinciden" : "Distintas"} · {row.raw_address_count ?? "—"} scraper / {row.published_address_count ?? "—"} publicadas</p></div></div>
       <button className="mt-auto rounded-md bg-stone-900 px-4 py-2 text-sm font-medium text-white hover:bg-stone-800" onClick={() => navigate(`/benefits/${row.benefit_id}`)} type="button">Abrir beneficio</button>
     </aside>
   </div>;
@@ -99,17 +119,22 @@ export function SaludBeneficios() {
     setVerdicts((current) => current.includes(verdict) ? current.filter((item) => item !== verdict) : [...current, verdict]);
   };
   const copyInvestigationPrompt = async () => {
-    const gaps = (page?.rows ?? []).filter((row) => row.published_gap_fields?.length);
-    const examples = gaps.slice(0, 25).map((row) => `- ${row.issuer_slug} | ${row.merchant_name} | ${row.title} | verdict=${row.verdict} | gaps=${row.published_gap_fields?.join(", ")}`).join("\n") || "- No hay gaps de publicación en los resultados visibles.";
-    const prompt = `Investiga a profundidad los gaps de publicación detectados por benefit_scrape_reconciliation en Patoapp y arma un plan concreto para resolverlos.\n\nContexto del filtro: emisor=${issuer || "todos"}; solo problemas=${onlyIssues ? "sí" : "no"}; veredictos=${verdicts.length ? verdicts.join(", ") : "todos"}.\nResumen: ${summary?.total ?? 0} beneficios activos auditados; ${summary?.published_gaps ?? 0} con published_gap_fields.\n\nCasos visibles con gaps:\n${examples}\n\n1. Traza cada campo faltante desde el raw y el draft hasta benefits, revisando runs, processing_status, publish_ingestion_draft y cualquier fix posterior relevante. Distingue defecto de publicación, dato legítimamente vacío, dato pendiente de re-scrape y falsos positivos.\n2. Agrupa por causa raíz y cuantifica impacto por issuer/campo.\n3. Propón un plan priorizado y seguro: correcciones de código/migración, reprocesos o publicaciones necesarias, validaciones, rollback y monitoreo. No ejecutes acciones mutantes sin confirmar primero el alcance.\n4. Entrega el plan con archivos/funciones a tocar, riesgos, orden de ejecución y criterios verificables de cierre.`;
+    const issues = (page?.rows ?? []).filter((row) => row.verdict !== "ok");
+    const examples = issues.slice(0, 25).map((row) => {
+      const raw = row.raw_drift_fields?.join(", ") || "—";
+      const missing = row.missing_published_addresses?.length ?? 0;
+      const extra = row.extra_published_addresses?.length ?? 0;
+      return `- ${row.issuer_slug} | ${row.merchant_name} | ${row.title} | verdict=${row.verdict} | raw_fields=${raw} | locations_missing=${missing} | locations_extra=${extra}`;
+    }).join("\n") || "- No hay problemas en los resultados visibles.";
+    const prompt = `Investiga la salud de beneficios detectada por benefit_scrape_reconciliation en Patoapp y arma un plan concreto para llegar a 100%.\n\nContrato de salud: cada beneficio activo debe aparecer en la última corrida de scraper terminada, sus campos directos del raw deben coincidir con benefits y el set normalizado de benefit_locations debe ser exactamente el mismo que trajo el scraper. processing_status, drafts, provenance, reglas, parser e IA no forman parte del score.\n\nContexto del filtro: emisor=${issuer || "todos"}; solo problemas=${onlyIssues ? "sí" : "no"}; veredictos=${verdicts.length ? verdicts.join(", ") : "todos"}.\nResumen: ${summary?.healthy ?? 0}/${summary?.total ?? 0} perfectos (${summary?.health_percentage ?? 0}%); ${summary?.present_in_last_run ?? 0} presentes; ${summary?.raw_matches ?? 0} con raw coincidente; ${summary?.address_matches ?? 0} con direcciones exactas.\n\nCasos visibles:\n${examples}\n\n1. Para ausentes, verifica el run_id de la última corrida terminada y por qué el scraper no los releyó.\n2. Para raw_drift, traza solo los campos listados entre scraped_benefits_raw y benefits; no investigues reglas ni datos post-pipeline.\n3. Para location_drift, compara las direcciones faltantes y sobrantes con merchant_addresses, merchant_location_candidates y benefit_locations.\n4. Agrupa por causa raíz, cuantifica impacto y propone un plan seguro con validaciones y criterio de cierre verificable. No ejecutes acciones mutantes sin confirmar primero el alcance.`;
     await navigator.clipboard.writeText(prompt);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 2000);
   };
 
   return <div className="h-full overflow-y-auto px-8 py-8"><div className="mx-auto max-w-7xl">
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-lg font-semibold text-stone-900">Salud de beneficios</h1><p className="mt-0.5 text-sm text-stone-500">Publicado versus la última información de los scrapers.</p></div><div className="flex gap-2"><button className="rounded-md border border-stone-300 bg-white px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50 disabled:opacity-50" disabled={!page || loading} onClick={() => void copyInvestigationPrompt()} type="button">{copied ? "Prompt copiado" : "Copiar prompt de investigación"}</button><button className="rounded-md bg-stone-900 px-4 py-2 text-sm font-medium text-white hover:bg-stone-800 disabled:opacity-50" disabled={loading} onClick={() => void load()} type="button">{loading ? "Cargando…" : "Refrescar"}</button></div></div>
-    <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4"><div className="rounded-lg border border-stone-200 bg-white p-4"><p className="text-xs text-stone-400">Activos auditados</p><p className="text-2xl font-semibold">{summary?.total ?? "—"}</p></div><div className="rounded-lg border border-amber-200 bg-amber-50 p-4"><p className="text-xs text-amber-700">Con brechas publicadas</p><p className="text-2xl font-semibold text-amber-800">{summary?.published_gaps ?? "—"}</p></div>{["raw_not_published", "unverified_failed_rescrape"].map((v) => <div className="rounded-lg border border-stone-200 bg-white p-4" key={v}><p className="text-xs text-stone-400">{LABELS[v]}</p><p className="text-2xl font-semibold">{summary?.verdicts?.[v] ?? 0}</p></div>)}</div>
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-lg font-semibold text-stone-900">Salud de beneficios</h1><p className="mt-0.5 text-sm text-stone-500">Beneficios publicados versus la última corrida de scraper terminada: presencia, datos crudos y direcciones exactas.</p></div><div className="flex gap-2"><button className="rounded-md border border-stone-300 bg-white px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50 disabled:opacity-50" disabled={!page || loading} onClick={() => void copyInvestigationPrompt()} type="button">{copied ? "Prompt copiado" : "Copiar prompt de investigación"}</button><button className="rounded-md bg-stone-900 px-4 py-2 text-sm font-medium text-white hover:bg-stone-800 disabled:opacity-50" disabled={loading} onClick={() => void load()} type="button">{loading ? "Cargando…" : "Refrescar"}</button></div></div>
+    <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5"><div className="rounded-lg border border-stone-200 bg-white p-4"><p className="text-xs text-stone-400">Activos auditados</p><p className="text-2xl font-semibold">{summary?.total ?? "—"}</p></div><div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4"><p className="text-xs text-emerald-700">Perfectos</p><p className="text-2xl font-semibold text-emerald-800">{summary?.healthy ?? "—"}</p><p className="text-xs text-emerald-700">{summary ? `${summary.health_percentage}%` : "—"}</p></div><div className="rounded-lg border border-stone-200 bg-white p-4"><p className="text-xs text-stone-400">Presentes última corrida</p><p className="text-2xl font-semibold">{summary?.present_in_last_run ?? "—"}</p></div><div className="rounded-lg border border-stone-200 bg-white p-4"><p className="text-xs text-stone-400">Datos crudos iguales</p><p className="text-2xl font-semibold">{summary?.raw_matches ?? "—"}</p></div><div className="rounded-lg border border-stone-200 bg-white p-4"><p className="text-xs text-stone-400">Direcciones exactas</p><p className="text-2xl font-semibold">{summary?.address_matches ?? "—"}</p></div></div>
     <div className="mb-4 flex flex-wrap items-center gap-3"><select className="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm" onChange={(e) => { resetPage(); setIssuer(e.target.value); }} value={issuer}><option value="">Todos los emisores</option>{issuers.map((i) => <option key={i.slug} value={i.slug}>{i.name}</option>)}</select><label className="flex items-center gap-2 text-sm text-stone-600"><input checked={onlyIssues} className="accent-stone-900" onChange={(e) => { resetPage(); setOnlyIssues(e.target.checked); }} type="checkbox" />Ocultar OK</label></div>
     <div className="mb-4 flex flex-wrap gap-2">{VERDICTS.map((v) => <button className={`rounded-full border px-3 py-1 text-xs ${verdicts.includes(v) ? "border-stone-900 bg-stone-900 text-white" : "border-stone-200 bg-white text-stone-600"}`} key={v} onClick={() => toggle(v)} type="button">{LABELS[v] ?? v} {summary?.verdicts?.[v] ? `(${summary.verdicts[v]})` : ""}</button>)}</div>
     {error ? <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
