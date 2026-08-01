@@ -1,0 +1,9 @@
+[features]
+hooks = true
+
+[mcp_servers.supabase]
+url = "https://mcp.supabase.com/mcp?project_ref=pcgsvhxfztxoajkoahdj&read_only=true"
+enabled = true
+
+[plugins."superpowers@openai-curated"]
+enabled = true
