@@ -17,6 +17,7 @@ const VALUE_TYPE_OPTIONS: SelectOption[] = [
   { value: "two_for_one", label: "2x1" },
   { value: "installments", label: "Cuotas" },
   { value: "cashback", label: "Cashback" },
+  { value: "preferred_price", label: "Precio preferencial" },
   { value: "preventa_exclusiva", label: "Preventa exclusiva" },
   { value: "acceso_anticipado", label: "Acceso anticipado" },
 ];

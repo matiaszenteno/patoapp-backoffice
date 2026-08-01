@@ -41,6 +41,7 @@ export const VALUE_TYPE_OPTIONS = [
   { label: "2x1", value: "two_for_one" },
   { label: "Cuotas", value: "installments" },
   { label: "Cashback", value: "cashback" },
+  { label: "Precio preferencial", value: "preferred_price" },
   { label: "Preventa exclusiva", value: "preventa_exclusiva" },
   { label: "Acceso anticipado", value: "acceso_anticipado" },
 ];
