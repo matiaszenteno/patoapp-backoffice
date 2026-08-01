@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|^apply_patch$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/block_env_edit.py\"",
+            "timeout": 10,
+            "statusMessage": "Protecting local secrets"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__supabase__(apply_migration|deploy_edge_function|execute_sql|create_branch|delete_branch|merge_branch|rebase_branch|reset_branch)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/block_supabase_direct.py\"",
+            "timeout": 10,
+            "statusMessage": "Enforcing the Supabase consumer boundary"
+          }
+        ]
+      }
+    ]
+  }
+}

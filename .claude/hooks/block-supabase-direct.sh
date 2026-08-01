@@ -20,7 +20,9 @@ case "$tool" in
         ;;
     mcp__supabase__execute_sql)
         query=$(echo "$input" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('query',''))" 2>/dev/null || echo "")
-        if echo "$query" | grep -qiE '^\s*(CREATE|DROP|ALTER|TRUNCATE|RENAME|INSERT|UPDATE|DELETE|MERGE|COPY)'; then
+        # Split on ';' so each statement is checked at its own start — otherwise a
+        # multi-statement query like "SELECT 1; DROP TABLE x" slips past a ^-anchored match.
+        if echo "$query" | tr ';' '\n' | grep -qiE '^\s*(CREATE|DROP|ALTER|TRUNCATE|RENAME|INSERT|UPDATE|DELETE|MERGE|COPY|GRANT|REVOKE)\b'; then
             echo "ERROR: Write SQL via execute_sql está bloqueado (CLAUDE.md). Los cambios de schema van en patoapp-scrapers/supabase/migrations/; los writes de datos van por el pipeline de CI." >&2
             exit 2
         fi

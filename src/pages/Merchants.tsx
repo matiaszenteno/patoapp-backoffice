@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
 import type { LatLng } from "leaflet";
 import { supabase } from "../lib/supabase";
+import { getFunctionErrorMessage } from "../lib/correctionReprocess";
 import { inputCls } from "../lib/styles";
 
 type LocationRow = {
@@ -19,6 +20,7 @@ type MerchantRow = {
   image_url: string | null;
   name: string;
   normalized_name: string;
+  website: string | null;
   location_count: number;
   location_sources: Record<string, number>;
   // Estado del último name search. 'needs_location_review' = el pipeline no pudo linkear
@@ -255,12 +257,19 @@ function LocationEditor({
   );
 }
 
-function MerchantCard({ merchant }: { merchant: MerchantRow }) {
+function MerchantCard({
+  merchant,
+  onMerchantSaved,
+}: {
+  merchant: MerchantRow;
+  onMerchantSaved: (updated: MerchantRow) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [draftMerchant, setDraftMerchant] = useState({
     image_url: merchant.image_url ?? "",
     name: merchant.name,
     normalized_name: merchant.normalized_name,
+    website: merchant.website ?? "",
   });
   const [locations, setLocations] = useState<LocationRow[] | null>(null);
   const [loadingLocs, setLoadingLocs] = useState(false);
@@ -334,16 +343,53 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
     }
     setMerchantSaving(true);
     setMerchantResult(null);
-    const { error } = await supabase
-      .from("merchants")
-      .update({
-        image_url: draftMerchant.image_url.trim() || null,
+
+    // Vía edge function, no UPDATE directo: `merchants` tiene RLS con una sola policy
+    // de SELECT, así que la escritura con anon key afecta 0 filas sin devolver error.
+    const token = await getToken();
+    if (!token) {
+      setMerchantSaving(false);
+      setMerchantResult("No autenticado.");
+      return;
+    }
+
+    const { data, error } = await supabase.functions.invoke("manage-merchant", {
+      body: {
+        merchantId: merchant.id,
         name,
-        normalized_name: normalizedName,
-      })
-      .eq("id", merchant.id);
+        normalizedName,
+        imageUrl: draftMerchant.image_url.trim() || null,
+        website: draftMerchant.website.trim() || null,
+      },
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
     setMerchantSaving(false);
-    setMerchantResult(error ? error.message : "Merchant guardado.");
+    if (error) {
+      // El body del 400 viaja en error.context; error.message solo trae el genérico
+      // "Edge Function returned a non-2xx status code".
+      setMerchantResult(await getFunctionErrorMessage(error));
+      return;
+    }
+    const result = data as { error?: string; websiteChanged?: boolean } | null;
+    if (result?.error) {
+      setMerchantResult(result.error);
+      return;
+    }
+
+    const website = draftMerchant.website.trim() || null;
+    onMerchantSaved({
+      ...merchant,
+      image_url: draftMerchant.image_url.trim() || null,
+      name,
+      normalized_name: normalizedName,
+      website,
+    });
+    setMerchantResult(
+      result?.websiteChanged
+        ? "Merchant guardado. Website actualizada: se re-encolará el name search."
+        : "Merchant guardado.",
+    );
   };
 
   const handleActualizarUbicaciones = async () => {
@@ -437,6 +483,20 @@ function MerchantCard({ merchant }: { merchant: MerchantRow }) {
                       placeholder="https://..."
                       value={draftMerchant.image_url}
                     />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs font-medium text-stone-600 md:col-span-2">
+                    Website del comercio
+                    <input
+                      className={inputCls}
+                      onChange={(e) => setDraftMerchant((d) => ({ ...d, website: e.target.value }))}
+                      placeholder="https://comercio.cl"
+                      value={draftMerchant.website}
+                    />
+                    <span className="text-[11px] font-normal text-stone-400">
+                      Autoriza el match por dominio en name search. La completa el scraper cuando la
+                      trae; si está vacía o apunta al emisor / a una red social, corregirla acá
+                      vuelve a encolar la búsqueda.
+                    </span>
                   </label>
                 </div>
               </div>
@@ -584,7 +644,7 @@ export function Merchants() {
 
     let supabaseQuery = supabase
       .from("merchants")
-      .select("id, name, normalized_name, image_url, scraped_addresses, addresses_resolved_at, google_places_search_status, merchant_locations(id,source)")
+      .select("id, name, normalized_name, website, image_url, scraped_addresses, addresses_resolved_at, google_places_search_status, merchant_locations(id,source)")
       .order("name");
 
     if (safeQ) {
@@ -626,6 +686,7 @@ export function Merchants() {
             image_url: m.image_url as string | null,
             name: m.name as string,
             normalized_name: m.normalized_name as string,
+            website: (m.website as string | null) ?? null,
             location_count: locations.length,
             location_sources: locationSources,
             google_places_search_status: (m.google_places_search_status as string | null) ?? null,
@@ -649,7 +710,8 @@ export function Merchants() {
   }, [debouncedQuery, reviewOnly]);
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8 flex flex-col gap-5">
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-5xl mx-auto px-6 py-8 flex flex-col gap-5">
       <div>
         <h1 className="text-xl font-bold text-stone-900">Merchants</h1>
         <p className="mt-0.5 text-sm text-stone-500">Gestiona ubicaciones y operaciones por merchant.</p>
@@ -681,13 +743,20 @@ export function Merchants() {
       ) : (
         <div className="flex flex-col gap-2">
           {merchants.map((m) => (
-            <MerchantCard key={m.id} merchant={m} />
+            <MerchantCard
+              key={m.id}
+              merchant={m}
+              onMerchantSaved={(updated) =>
+                setMerchants((prev) => prev.map((row) => (row.id === updated.id ? updated : row)))
+              }
+            />
           ))}
           {merchants.length === 0 && (
             <p className="text-center text-sm text-stone-400">Sin resultados</p>
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }

@@ -442,7 +442,8 @@ export function Operaciones() {
   const [activeTab, setActiveTab] = useState<MainTab>("scrapers");
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8 overflow-y-auto h-full">
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-5xl mx-auto px-6 py-8">
       <div className="mb-6">
         <h1 className="text-lg font-semibold text-stone-900">Operaciones</h1>
         <p className="mt-0.5 text-sm text-stone-400">Extracción de beneficios y operaciones de publicación.</p>
@@ -471,6 +472,7 @@ export function Operaciones() {
           {activeTab === "scrapers" && <ScrapersContent />}
           {activeTab === "pipeline" && <PipelineContent />}
         </div>
+      </div>
       </div>
     </div>
   );
