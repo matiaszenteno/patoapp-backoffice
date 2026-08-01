@@ -65,7 +65,7 @@ const NAV_ITEMS = [
   { to: "/feedback", label: "Feedback", icon: ChatIcon },
   { to: "/notificaciones", label: "Notificaciones", icon: BellIcon },
   { to: "/metricas", label: "Métricas", icon: ChartIcon },
-  { to: "/salud-beneficios", label: "Salud de beneficios", icon: ChartIcon },
+  { to: "/salud-beneficios", label: "Fidelidad raw", icon: ChartIcon },
   { to: "/logs", label: "Logs", icon: ListIcon },
 ];
 
