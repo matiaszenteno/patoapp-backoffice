@@ -23,6 +23,9 @@ type MerchantRow = {
   website: string | null;
   location_count: number;
   location_sources: Record<string, number>;
+  // Estado del último name search. 'needs_location_review' = el pipeline no pudo linkear
+  // ubicación con seguridad (sin website conocida ni ancla) → resolver a mano acá.
+  google_places_search_status: string | null;
   scraped_addresses: Array<{ address?: string; captured_at?: string; source?: string }>;
 };
 
@@ -430,6 +433,11 @@ function MerchantCard({
           </span>
         </span>
         <div className="flex items-center gap-3">
+          {merchant.google_places_search_status === "needs_location_review" && (
+            <span className="rounded bg-amber-100 border border-amber-200 px-2 py-0.5 text-xs text-amber-700">
+              revisar ubicación
+            </span>
+          )}
           <span className="rounded bg-stone-100 border border-stone-200 px-2 py-0.5 text-xs text-stone-500">
             {locCount} {locCount === 1 ? "ubicación" : "ubicaciones"}
           </span>
@@ -617,7 +625,9 @@ export function Merchants() {
   const [merchants, setMerchants] = useState<MerchantRow[]>([]);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [reviewOnly, setReviewOnly] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [queryError, setQueryError] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(query), 300);
@@ -626,6 +636,7 @@ export function Merchants() {
 
   useEffect(() => {
     setLoading(true);
+    setQueryError(null);
     let cancelled = false;
     const q = debouncedQuery.trim();
     // Strip chars that break PostgREST's or() filter string parser
@@ -633,18 +644,35 @@ export function Merchants() {
 
     let supabaseQuery = supabase
       .from("merchants")
-      .select("id, name, normalized_name, website, image_url, scraped_addresses, addresses_resolved_at, merchant_locations(id,source)")
+      .select("id, name, normalized_name, website, image_url, scraped_addresses, addresses_resolved_at, google_places_search_status, merchant_locations(id,source)")
       .order("name");
 
     if (safeQ) {
       supabaseQuery = supabaseQuery.or(`name.ilike.%${safeQ}%,normalized_name.ilike.%${safeQ}%`);
     }
 
+    // Cola de revisión manual: merchants que el name search dejó sin linkear por falta
+    // de señal segura (sin website ni ancla). Se resuelven con el editor de mapa de abajo.
+    if (reviewOnly) {
+      supabaseQuery = supabaseQuery.eq("google_places_search_status", "needs_location_review");
+    }
+
     (async () => {
       try {
         const { data, error } = await supabaseQuery;
         if (cancelled) return;
-        if (!data || error) { setLoading(false); return; }
+        if (error) {
+          setMerchants([]);
+          setQueryError(error.message);
+          setLoading(false);
+          return;
+        }
+        if (!data) {
+          setMerchants([]);
+          setQueryError("No se pudieron cargar los merchants.");
+          setLoading(false);
+          return;
+        }
         const rows = data.map((m) => {
           const locations = Array.isArray(m.merchant_locations) ? (m.merchant_locations as Array<{ source?: string | null }>) : [];
           const locationSources = locations.reduce<Record<string, number>>((acc, loc) => {
@@ -661,6 +689,7 @@ export function Merchants() {
             website: (m.website as string | null) ?? null,
             location_count: locations.length,
             location_sources: locationSources,
+            google_places_search_status: (m.google_places_search_status as string | null) ?? null,
             scraped_addresses: Array.isArray(m.scraped_addresses)
               ? (m.scraped_addresses as MerchantRow["scraped_addresses"])
               : [],
@@ -668,13 +697,17 @@ export function Merchants() {
         });
         setMerchants(rows);
         setLoading(false);
-      } catch {
-        if (!cancelled) setLoading(false);
+      } catch (err) {
+        if (!cancelled) {
+          setMerchants([]);
+          setQueryError(err instanceof Error ? err.message : "No se pudieron cargar los merchants.");
+          setLoading(false);
+        }
       }
     })();
 
     return () => { cancelled = true; };
-  }, [debouncedQuery]);
+  }, [debouncedQuery, reviewOnly]);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -692,7 +725,20 @@ export function Merchants() {
         value={query}
       />
 
-      {loading ? (
+      <label className="flex items-center gap-2 text-sm text-stone-600">
+        <input
+          checked={reviewOnly}
+          onChange={(e) => setReviewOnly(e.target.checked)}
+          type="checkbox"
+        />
+        Solo merchants que necesitan revisión de ubicación
+      </label>
+
+      {queryError ? (
+        <div className="rounded-md border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-600">
+          <strong>Error:</strong> {queryError}
+        </div>
+      ) : loading ? (
         <p className="text-sm text-stone-400">Cargando...</p>
       ) : (
         <div className="flex flex-col gap-2">
