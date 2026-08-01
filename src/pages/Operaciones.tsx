@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getFunctionErrorMessage } from "../lib/correctionReprocess";
 import { supabase } from "../lib/supabase";
 import { inputCls, selectCls } from "../lib/styles";
 import { useIssuers } from "../lib/useIssuers";
@@ -289,27 +290,40 @@ function EnrichMerchantsTab() {
   const [error, setError] = useState<string | null>(null);
 
   async function run() {
-    setLoading(true); setResult(null); setError(null);
+    setResult(null); setError(null);
+    const parsedLimit = Number(limit);
+    if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 500) {
+      setError("El máximo de comercios debe ser un número entero entre 1 y 500.");
+      return;
+    }
     const token = await getToken();
-    if (!token) { setError("No autenticado."); setLoading(false); return; }
+    if (!token) { setError("No autenticado."); return; }
+    if (!dryRun) {
+      const effect = noReembed
+        ? "guardará el enriquecimiento sin regenerar los embeddings"
+        : "guardará el enriquecimiento y regenerará los embeddings de sus beneficios asociados";
+      const confirmed = window.confirm(
+        `Esta operación procesará hasta ${parsedLimit} comercios con beneficios activos, llamará a la IA y ${effect}. ¿Continuar?`,
+      );
+      if (!confirmed) return;
+    }
+    setLoading(true);
     const { data, error: fnError } = await supabase.functions.invoke("run-enrich-merchants", {
-      body: { dryRun, noReembed, limit: Number(limit) },
+      body: { dryRun, noReembed, limit: parsedLimit },
       headers: { Authorization: `Bearer ${token}` },
     });
     setLoading(false);
-    if (fnError) { setError(fnError.message); return; }
+    if (fnError) { setError(await getFunctionErrorMessage(fnError)); return; }
     setResult(data as Record<string, unknown>);
   }
 
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-sm text-stone-500">Enriquece comercios multiproducto con vocabulario del catálogo para mejorar la búsqueda semántica y vuelve a generar los embeddings de los beneficios afectados.</p>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold uppercase tracking-wide text-stone-400">Máximo de comercios</label>
-          <input className={`${inputCls} w-full`} max={500} min={1} onChange={(e) => setLimit(e.target.value)} type="number" value={limit} />
-          <p className="text-xs text-stone-400">Máximo 500.</p>
-        </div>
+      <p className="text-sm text-stone-500">Enriquece todos los comercios con al menos un beneficio activo: genera términos de producto o servicio y, para comercios multiproducto, amplía categorías y productos. Luego vuelve a generar los embeddings de los beneficios afectados.</p>
+      <div className="flex max-w-sm flex-col gap-1.5">
+        <label className="text-xs font-semibold uppercase tracking-wide text-stone-400">Máximo de comercios</label>
+        <input className={`${inputCls} w-full`} max={500} min={1} onChange={(e) => setLimit(e.target.value)} type="number" value={limit} />
+        <p className="text-xs text-stone-400">Entre 1 y 500 comercios con beneficios activos.</p>
       </div>
       <div className="flex flex-col gap-2">
         {[
