@@ -567,6 +567,7 @@ export function Merchants() {
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [reviewOnly, setReviewOnly] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [queryError, setQueryError] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(query), 300);
@@ -575,6 +576,7 @@ export function Merchants() {
 
   useEffect(() => {
     setLoading(true);
+    setQueryError(null);
     let cancelled = false;
     const q = debouncedQuery.trim();
     // Strip chars that break PostgREST's or() filter string parser
@@ -599,7 +601,18 @@ export function Merchants() {
       try {
         const { data, error } = await supabaseQuery;
         if (cancelled) return;
-        if (!data || error) { setLoading(false); return; }
+        if (error) {
+          setMerchants([]);
+          setQueryError(error.message);
+          setLoading(false);
+          return;
+        }
+        if (!data) {
+          setMerchants([]);
+          setQueryError("No se pudieron cargar los merchants.");
+          setLoading(false);
+          return;
+        }
         const rows = data.map((m) => {
           const locations = Array.isArray(m.merchant_locations) ? (m.merchant_locations as Array<{ source?: string | null }>) : [];
           const locationSources = locations.reduce<Record<string, number>>((acc, loc) => {
@@ -623,8 +636,12 @@ export function Merchants() {
         });
         setMerchants(rows);
         setLoading(false);
-      } catch {
-        if (!cancelled) setLoading(false);
+      } catch (err) {
+        if (!cancelled) {
+          setMerchants([]);
+          setQueryError(err instanceof Error ? err.message : "No se pudieron cargar los merchants.");
+          setLoading(false);
+        }
       }
     })();
 
@@ -655,7 +672,11 @@ export function Merchants() {
         Solo merchants que necesitan revisión de ubicación
       </label>
 
-      {loading ? (
+      {queryError ? (
+        <div className="rounded-md border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-600">
+          <strong>Error:</strong> {queryError}
+        </div>
+      ) : loading ? (
         <p className="text-sm text-stone-400">Cargando...</p>
       ) : (
         <div className="flex flex-col gap-2">
