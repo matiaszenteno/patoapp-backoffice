@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { BenefitRest, InternalNote } from "../components/classification/BenefitRest";
 import { labelsForFields, ReviewBlock } from "../components/classification/ReviewBlock";
@@ -53,6 +53,11 @@ type CardData = {
 };
 
 const SUPPORTED_DRAFT_SCHEMA = "2026-07-draft-v1";
+
+/** Techo de la cola. Sin él la página trae toda la tabla con su raw_payload completo y la
+ *  renderiza entera; cuando se llena, el operador tiene que ver el aviso — una cola truncada
+ *  en silencio se lee como "no queda nada por clasificar". */
+const QUEUE_LIMIT = 200;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -110,10 +115,14 @@ export function Clasificacion() {
   useEffect(() => {
     if (!rawParam && statusFilters.length === 0) {
       setRows([]);
+      setPageError(null);
       setPageLoading(false);
       return;
     }
     setPageLoading(true);
+    // Togglear filtros rápido deja dos consultas en vuelo; sin esto la que responde última
+    // gana, y esa puede ser la del filtro anterior.
+    let cancelled = false;
     const select = "id, issuer_slug, source_url, raw_payload, scraped_at, processing_status, benefit_id, run_id, publication_blockers";
     const rowsQuery = rawParam
       ? supabase.from("scraped_benefits_raw").select(select).eq("id", rawParam)
@@ -123,23 +132,41 @@ export function Clasificacion() {
       // "Borrado del camino legacy" del design doc.
       : supabase.from("scraped_benefits_raw").select(select)
         .in("processing_status", statusFilters)
-        .order("scraped_at", { ascending: false });
+        .order("scraped_at", { ascending: false })
+        .limit(QUEUE_LIMIT);
 
     Promise.all([supabase.auth.getSession(), rowsQuery]).then(
       ([{ data: sessionData }, { data: rowData, error }]) => {
+        if (cancelled) return;
         setUserIdentifier(sessionData.session?.user.email ?? sessionData.session?.user.id ?? null);
-        if (error) setPageError(error.message);
-        else setRows((rowData ?? []) as RawRow[]);
+        if (error) {
+          setPageError(error.message);
+        } else {
+          setPageError(null);
+          setRows((rowData ?? []) as RawRow[]);
+        }
         setPageLoading(false);
       },
-    );
+    ).catch((err: unknown) => {
+      // Sin este catch un reject deja la cola en "Cargando…" para siempre.
+      if (cancelled) return;
+      setPageError(err instanceof Error ? err.message : String(err));
+      setPageLoading(false);
+    });
+
+    return () => { cancelled = true; };
   }, [statusFilters, rawParam]);
 
   useEffect(() => {
-    if (rows.length > 0 && !selectedId) {
-      setSelectedId(rows[0].id);
-      loadCardData(rows[0]);
+    if (rows.length === 0) {
+      setSelectedId(null);
+      return;
     }
+    // No alcanza con `!selectedId`: al cambiar de filtro la selección anterior puede haber
+    // salido de la lista, y el panel quedaba vacío con la cola llena al lado.
+    if (selectedId && rows.some((row) => row.id === selectedId)) return;
+    setSelectedId(rows[0].id);
+    if (!cardData[rows[0].id]) loadCardData(rows[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows]);
 
@@ -157,6 +184,11 @@ export function Clasificacion() {
 
       if (draftRes.error) {
         throw new Error(`No se pudo leer el draft: ${draftRes.error.message}`);
+      }
+      // Tragarse este error tenía consecuencia de escritura, no solo de lectura: la ficha se
+      // armaba sin las correcciones guardadas y el siguiente Guardar las pisaba con el upsert.
+      if (correctionRes.error) {
+        throw new Error(`No se pudo leer la corrección guardada: ${correctionRes.error.message}`);
       }
 
       const draft = draftRes.data as IngestionDraft | null;
@@ -375,8 +407,11 @@ export function Clasificacion() {
 
   const provenance = data?.draft?.field_provenance;
   const task = getReviewTask(data?.blockers ?? [], provenance);
+  // El formulario tal como lo dejó el draft, sin correcciones: es la referencia para saber si
+  // el operador efectivamente cambió algo (ver getPendingFields).
+  const draftVals = data?.draft ? formFromDraft(data.draft.draft, null, null) : undefined;
   const action = vals
-    ? getPrimaryAction(task, vals, labelsForFields([...task.missingFields, "ends_at"]))
+    ? getPrimaryAction(task, vals, labelsForFields([...task.missingFields, "ends_at"]), draftVals)
     : null;
   const canSave = !!vals && !!data?.draft && !data.unsupported && !action?.disabledReason;
 
@@ -422,6 +457,16 @@ export function Clasificacion() {
             <span className="text-[11px] font-semibold uppercase tracking-wider text-stone-400">Cola</span>
             <span className="text-[11px] text-stone-400">{rows.length}</span>
           </div>
+          {rawParam ? (
+            // Con ?raw= la consulta es por id y los filtros no participan: mostrarlos
+            // clickeables sería un control que no hace nada.
+            <p className="text-[11px] leading-relaxed text-stone-400">
+              Viendo un raw puntual ·{" "}
+              <Link className="underline hover:text-stone-600" to="/clasificacion">
+                ver la cola completa
+              </Link>
+            </p>
+          ) : (
           <div className="flex flex-wrap gap-1">
             {["needs_review", "failed", "ignored"].map((status) => (
               <button
@@ -440,13 +485,23 @@ export function Clasificacion() {
               </button>
             ))}
           </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto">
           {pageLoading && <p className="px-4 py-4 text-xs text-stone-400">Cargando…</p>}
           {pageError && <p className="px-4 py-4 text-xs text-stone-500">{pageError}</p>}
           {!pageLoading && !pageError && rows.length === 0 && (
-            <p className="px-4 py-8 text-center text-xs text-stone-400">Sin beneficios por clasificar</p>
+            <p className="px-4 py-8 text-center text-xs text-stone-400">
+              {statusFilters.length === 0 && !rawParam
+                ? "Elegí al menos un estado"
+                : "Sin beneficios por clasificar"}
+            </p>
+          )}
+          {!pageLoading && !rawParam && rows.length === QUEUE_LIMIT && (
+            <p className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-[10px] leading-relaxed text-amber-800">
+              Mostrando los {QUEUE_LIMIT} más recientes. Hay más raws en este estado.
+            </p>
           )}
           {rows.map((row) => {
             const rowPayload = row.raw_payload ?? {};
@@ -539,7 +594,7 @@ export function Clasificacion() {
               <div className="flex flex-wrap items-center gap-2">
                 {selectedRow.issuer_slug && (
                   <span className="rounded border border-stone-200 bg-stone-100 px-2 py-0.5 text-[10px] font-medium text-stone-500">
-                    {selectedRow.issuer_slug}
+                    {issuerNameBySlug.get(selectedRow.issuer_slug) ?? selectedRow.issuer_slug}
                   </span>
                 )}
                 <span className="rounded border border-stone-200 bg-stone-100 px-2 py-0.5 text-[10px] font-medium text-stone-500">
@@ -549,6 +604,14 @@ export function Clasificacion() {
                   <span className="text-[10px] text-stone-400">
                     scrapeado {formatDateTime(selectedRow.scraped_at)}
                   </span>
+                )}
+                {selectedRow.benefit_id && (
+                  <Link
+                    className="text-[10px] font-medium text-stone-500 underline hover:text-stone-800"
+                    to={`/benefits/${selectedRow.benefit_id}`}
+                  >
+                    ver el beneficio publicado →
+                  </Link>
                 )}
               </div>
             </div>
@@ -634,8 +697,14 @@ export function Clasificacion() {
               <div className="flex items-center gap-2">
                 <button
                   className="rounded-md border border-red-200 px-4 py-1.5 text-sm font-medium text-red-700 transition-colors hover:border-red-300 hover:bg-red-50 disabled:opacity-40"
-                  disabled={isSaving || isIgnoring || selectedRow.processing_status === "ignored"}
+                  // Sin draft el RPC rechaza el descarte y la ficha ya lo explica: dejar el
+                  // botón activo pedía confirmar una acción destructiva que iba a fallar.
+                  disabled={isSaving || isIgnoring || isLoadingCard || !data?.draft
+                    || selectedRow.processing_status === "ignored"}
                   onClick={() => handleIgnoreRaw(selectedRow)}
+                  title={!isLoadingCard && !data?.draft
+                    ? "Este raw todavía no tiene draft canónico: el descarte se desharía solo."
+                    : undefined}
                   type="button"
                 >
                   {isIgnoring ? "Descartando…" : "Descartar"}
