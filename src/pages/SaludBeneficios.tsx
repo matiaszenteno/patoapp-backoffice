@@ -19,7 +19,9 @@ const VERDICTS = [
   "raw_missing",
   "absent_from_last_run",
   "raw_drift",
+  "location_merchant_mismatch",
   "location_drift",
+  "address_presentation_drift",
   "duplicate_source_urls",
   "not_published",
   "no_completed_run",
@@ -33,7 +35,9 @@ const LABELS: Record<string, string> = {
   no_completed_run: "Sin corrida de referencia",
   absent_from_last_run: "Ausente de la corrida de referencia",
   raw_drift: "Campos raw distintos",
-  location_drift: "Direcciones distintas",
+  location_merchant_mismatch: "Ubicación de otro comercio",
+  location_drift: "Identidades de dirección distintas",
+  address_presentation_drift: "Dirección visible no explicada",
   duplicate_source_urls: "Varias URLs al mismo beneficio",
 };
 const PUBLICATION_STATE_LABELS: Record<string, string> = {
@@ -42,6 +46,13 @@ const PUBLICATION_STATE_LABELS: Record<string, string> = {
   failed: "Fallidos",
   ignored: "Ignorados",
   unknown: "Sin outcome conocido",
+};
+const ADDRESS_PRESENTATION_LABELS: Record<string, string> = {
+  matches_source: "Coincide con la dirección del scraper",
+  google_enriched: "Texto enriquecido por Google",
+  unexplained_change: "Cambio visible sin procedencia",
+  invalid_source_reference: "Referencia scraper inválida",
+  not_applicable: "No aplica",
 };
 
 function formatDate(value: string | null) {
@@ -138,6 +149,15 @@ function Detail({ row, onClose }: { row: RawFidelityRow; onClose: () => void }) 
           </div>
         ) : null}
         <Fields label="Campos distintos del raw" fields={row.raw_drift_fields} />
+        <Fields
+          label="Claves scraper obsoletas aún publicadas"
+          fields={row.stale_redemption_detail_keys ?? null}
+        />
+        {row.location_merchant_match === false ? (
+          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            {row.mismatched_location_count} {row.mismatched_location_count === 1 ? "ubicación vinculada pertenece" : "ubicaciones vinculadas pertenecen"} a otro comercio.
+          </div>
+        ) : null}
         {normalizedFields.length ? (
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">Valores raw normalizados</p>
@@ -186,10 +206,20 @@ function Detail({ row, onClose }: { row: RawFidelityRow; onClose: () => void }) 
             <p>{row.raw_match === null ? "No evaluable" : row.raw_match ? "Coinciden" : "Distintos"}</p>
           </div>
           <div className="col-span-2">
-            <p className="text-xs text-stone-400">Direcciones</p>
+            <p className="text-xs text-stone-400">Identidades de dirección</p>
             <p>
               {row.address_match === null ? "No evaluable" : row.address_match ? "Coinciden" : "Distintas"}
               {" · "}{row.raw_address_count ?? "—"} scraper / {row.published_address_count ?? "—"} publicadas
+            </p>
+          </div>
+          <div className="col-span-2">
+            <p className="text-xs text-stone-400">Presentación de la dirección</p>
+            <p>
+              {row.address_presentation_status
+                ? ADDRESS_PRESENTATION_LABELS[row.address_presentation_status]
+                  ?? row.address_presentation_status
+                : "—"}
+              {row.address_presentation_match === false ? " · Requiere investigación" : ""}
             </p>
           </div>
         </div>
