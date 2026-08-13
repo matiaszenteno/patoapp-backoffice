@@ -13,23 +13,35 @@ import { useIssuers } from "../lib/useIssuers";
 type Page = { total: number; rows: RawFidelityRow[] };
 
 const PAGE_SIZE = 100;
+const INFORMATIONAL_VERDICTS = new Set(["not_published", "no_completed_run", "ok"]);
 const VERDICTS = [
+  "missing_published",
   "raw_missing",
-  "no_completed_run",
   "absent_from_last_run",
   "raw_drift",
   "location_drift",
   "duplicate_source_urls",
+  "not_published",
+  "no_completed_run",
   "ok",
 ];
 const LABELS: Record<string, string> = {
-  ok: "Raw coincide",
+  ok: "Publicado fiel al raw",
+  not_published: "Raw no publicado",
+  missing_published: "Publicación esperada ausente",
   raw_missing: "Sin raw vinculado",
   no_completed_run: "Sin corrida de referencia",
   absent_from_last_run: "Ausente de la corrida de referencia",
   raw_drift: "Campos raw distintos",
   location_drift: "Direcciones distintas",
   duplicate_source_urls: "Varias URLs al mismo beneficio",
+};
+const PUBLICATION_STATE_LABELS: Record<string, string> = {
+  pending: "Pendientes",
+  needs_review: "Necesitan revisión",
+  failed: "Fallidos",
+  ignored: "Ignorados",
+  unknown: "Sin outcome conocido",
 };
 
 function formatDate(value: string | null) {
@@ -41,7 +53,9 @@ function formatDate(value: string | null) {
 function Badge({ verdict }: { verdict: string }) {
   const cls = verdict === "ok"
     ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-    : verdict === "no_completed_run" || verdict === "duplicate_source_urls"
+    : verdict === "not_published"
+      ? "bg-sky-50 text-sky-700 border-sky-200"
+      : verdict === "no_completed_run" || verdict === "duplicate_source_urls"
       ? "bg-amber-50 text-amber-700 border-amber-200"
       : "bg-red-50 text-red-700 border-red-200";
   return (
@@ -75,6 +89,7 @@ function Addresses({ label, addresses }: { label: string; addresses: string[] | 
 
 function Detail({ row, onClose }: { row: RawFidelityRow; onClose: () => void }) {
   const navigate = useNavigate();
+  const normalizedFields = Object.entries(row.normalized_raw_fields ?? {});
   return (
     <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
       <div className="absolute inset-0 bg-stone-900/20" />
@@ -87,13 +102,25 @@ function Detail({ row, onClose }: { row: RawFidelityRow; onClose: () => void }) 
             <p className="text-xs text-stone-400">{row.issuer_slug}</p>
             <h2 className="text-base font-semibold text-stone-900">{row.merchant_name}</h2>
             <p className="text-sm text-stone-500">{row.title}</p>
-            <p className="mt-1 break-all font-mono text-[11px] text-stone-400">{row.benefit_id}</p>
+            <p className="mt-1 break-all font-mono text-[11px] text-stone-400">
+              {row.benefit_id ?? row.linked_benefit_id ?? row.observation_id ?? "Sin identificador"}
+            </p>
           </div>
           <button className="text-sm text-stone-500 hover:text-stone-900" onClick={onClose} type="button">
             Cerrar
           </button>
         </div>
         <Badge verdict={row.verdict} />
+        {row.verdict === "not_published" ? (
+          <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
+            Este raw quedó explicado por su outcome y no se considera una alerta ni entra en la medición de fidelidad.
+          </div>
+        ) : null}
+        {row.verdict === "missing_published" ? (
+          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            La corrida registró este raw como publicado, pero ya no existe una publicación activa correspondiente.
+          </div>
+        ) : null}
         {row.source_url_count && row.source_url_count > 1 ? (
           <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
             <p className="text-sm font-medium text-amber-800">
@@ -111,12 +138,29 @@ function Detail({ row, onClose }: { row: RawFidelityRow; onClose: () => void }) 
           </div>
         ) : null}
         <Fields label="Campos distintos del raw" fields={row.raw_drift_fields} />
+        {normalizedFields.length ? (
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">Valores raw normalizados</p>
+            <dl className="mt-1 grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-sm text-stone-700">
+              {normalizedFields.map(([field, value]) => (
+                <div className="contents" key={field}>
+                  <dt className="font-mono text-xs text-stone-500">{field}</dt>
+                  <dd className="break-all">{String(value)}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ) : null}
         <Addresses label="Direcciones que faltan publicar" addresses={row.missing_published_addresses} />
         <Addresses label="Direcciones publicadas que sobran" addresses={row.extra_published_addresses} />
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
-            <p className="text-xs text-stone-400">Estado actual del raw</p>
-            <p>{row.raw_status ?? "—"} <span className="text-stone-400">(informativo)</span></p>
+            <p className="text-xs text-stone-400">Outcome en la referencia</p>
+            <p>{row.publication_state ?? row.raw_status ?? "—"}</p>
+          </div>
+          <div>
+            <p className="text-xs text-stone-400">Publicación activa</p>
+            <p>{row.has_active_publication ? "Sí" : "No"}</p>
           </div>
           <div>
             <p className="text-xs text-stone-400">Visto en la referencia</p>
@@ -141,7 +185,7 @@ function Detail({ row, onClose }: { row: RawFidelityRow; onClose: () => void }) 
             <p className="text-xs text-stone-400">Campos raw comparables</p>
             <p>{row.raw_match === null ? "No evaluable" : row.raw_match ? "Coinciden" : "Distintos"}</p>
           </div>
-          <div>
+          <div className="col-span-2">
             <p className="text-xs text-stone-400">Direcciones</p>
             <p>
               {row.address_match === null ? "No evaluable" : row.address_match ? "Coinciden" : "Distintas"}
@@ -149,13 +193,20 @@ function Detail({ row, onClose }: { row: RawFidelityRow; onClose: () => void }) 
             </p>
           </div>
         </div>
-        <button
-          className="mt-auto rounded-md bg-stone-900 px-4 py-2 text-sm font-medium text-white hover:bg-stone-800"
-          onClick={() => navigate(`/benefits/${row.benefit_id}`)}
-          type="button"
-        >
-          Abrir beneficio
-        </button>
+        {row.source_url ? (
+          <a className="break-all text-xs text-blue-700 hover:underline" href={row.source_url} rel="noreferrer" target="_blank">
+            Abrir fuente del scraper
+          </a>
+        ) : null}
+        {row.benefit_id ? (
+          <button
+            className="mt-auto rounded-md bg-stone-900 px-4 py-2 text-sm font-medium text-white hover:bg-stone-800"
+            onClick={() => navigate(`/benefits/${row.benefit_id}`)}
+            type="button"
+          >
+            Abrir beneficio activo
+          </button>
+        ) : null}
       </aside>
     </div>
   );
@@ -185,6 +236,8 @@ export function SaludBeneficios() {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const requestId = useRef(0);
   const stats = getFidelityStats(summary);
+  const unpublishedStates = Object.entries(summary?.publication_states ?? {})
+    .filter(([state, count]) => state !== "published" && count > 0);
 
   const load = useCallback(async () => {
     const currentRequest = ++requestId.current;
@@ -220,6 +273,7 @@ export function SaludBeneficios() {
   };
   const toggle = (verdict: string) => {
     resetPage();
+    if (INFORMATIONAL_VERDICTS.has(verdict)) setOnlyIssues(false);
     setVerdicts((current) => current.includes(verdict)
       ? current.filter((item) => item !== verdict)
       : [...current, verdict]);
@@ -247,9 +301,9 @@ export function SaludBeneficios() {
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-lg font-semibold text-stone-900">Fidelidad raw de beneficios</h1>
+            <h1 className="text-lg font-semibold text-stone-900">Reconciliación de beneficios</h1>
             <p className="mt-0.5 text-sm text-stone-500">
-              Compara solo campos entregados directamente por el scraper con lo publicado, usando la última corrida exitosa con evidencia congelada.
+              Explica cada raw observado, verifica que cada publicación activa tenga respaldo y mide la fidelidad de los outcomes publicados.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -276,9 +330,7 @@ export function SaludBeneficios() {
         {summary && stats.waitingForReference > 0 ? (
           <div className="mb-5 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
             <p className="font-medium">
-              {stats.waitingForReference === summary.total
-                ? "Todavía no hay evidencia comparable."
-                : `${stats.waitingForReference} beneficios aún no tienen evidencia comparable.`}
+              {stats.waitingForReference} filas aún no tienen una corrida de referencia.
             </p>
             <p className="mt-1 text-amber-700">
               Falta una corrida exitosa posterior a la migración para esos emisores. Se excluyen del porcentaje hasta contar con una referencia congelada.
@@ -287,29 +339,43 @@ export function SaludBeneficios() {
         ) : null}
 
         <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-6">
-          <MetricCard label="Activos publicados" value={summary?.total ?? "—"} />
-          <MetricCard label="Con referencia" value={summary ? stats.comparable : "—"} />
+          <MetricCard
+            label="Raws observados"
+            note={summary ? `${summary.raw_published} publicados + ${summary.raw_not_published} no publicados` : undefined}
+            value={summary?.raw_observed ?? "—"}
+          />
+          <MetricCard label="Publicaciones activas" value={summary?.total ?? "—"} />
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
-            <p className="text-xs text-emerald-700">Sin divergencias raw</p>
-            <p className="text-2xl font-semibold text-emerald-800">{summary?.healthy ?? "—"}</p>
-            <p className="text-xs text-emerald-700">{fidelityValue} de los comparables</p>
+            <p className="text-xs text-emerald-700">Fidelidad publicada</p>
+            <p className="text-2xl font-semibold text-emerald-800">{fidelityValue}</p>
+            <p className="text-xs text-emerald-700">{summary?.fidelity_matches ?? "—"} de {summary?.fidelity_comparable ?? "—"} comparables</p>
           </div>
           <MetricCard
-            label="Presentes en referencia"
-            note={summary ? `de ${stats.comparable} comparables` : undefined}
-            value={summary?.present_in_last_run ?? "—"}
+            label="Alertas"
+            note="Requieren investigación"
+            value={summary?.reconciliation_issues ?? "—"}
           />
           <MetricCard
-            label="Campos raw iguales"
-            note={summary ? `de ${summary.present_in_last_run} presentes` : undefined}
-            value={summary?.raw_matches ?? "—"}
+            label="Raws no publicados"
+            note="Informativos, no son alertas"
+            value={summary?.raw_not_published ?? "—"}
           />
           <MetricCard
-            label="Direcciones exactas"
-            note={summary ? `de ${summary.present_in_last_run} presentes` : undefined}
-            value={summary?.address_matches ?? "—"}
+            label="Gaps de publicación"
+            note="Campos presentes en el raw"
+            value={summary?.published_gaps ?? "—"}
           />
         </div>
+        {unpublishedStates.length ? (
+          <div className="mb-6 flex flex-wrap items-center gap-2 rounded-md border border-sky-100 bg-sky-50/60 px-4 py-3 text-xs text-sky-800">
+            <span className="font-medium">Raws no publicados por outcome:</span>
+            {unpublishedStates.map(([state, count]) => (
+              <span className="rounded-full border border-sky-200 bg-white px-2.5 py-1" key={state}>
+                {PUBLICATION_STATE_LABELS[state] ?? state}: {count}
+              </span>
+            ))}
+          </div>
+        ) : null}
 
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <select
@@ -327,7 +393,7 @@ export function SaludBeneficios() {
               onChange={(event) => { resetPage(); setOnlyIssues(event.target.checked); }}
               type="checkbox"
             />
-            Ocultar coincidencias
+            Solo alertas y gaps
           </label>
         </div>
         <div className="mb-4 flex flex-wrap gap-2">
@@ -349,14 +415,15 @@ export function SaludBeneficios() {
             <thead>
               <tr className="border-b border-stone-100 bg-stone-50 text-left">
                 <th className="px-4 py-3 text-xs text-stone-400">Emisor</th>
-                <th className="px-4 py-3 text-xs text-stone-400">Beneficio</th>
+                <th className="px-4 py-3 text-xs text-stone-400">Raw / beneficio</th>
+                <th className="px-4 py-3 text-xs text-stone-400">Publicación</th>
                 <th className="px-4 py-3 text-xs text-stone-400">Resultado</th>
                 <th className="px-4 py-3 text-xs text-stone-400">Visto en referencia</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
               {page?.rows.map((row) => (
-                <tr className="cursor-pointer hover:bg-stone-50" key={row.benefit_id} onClick={() => setSelected(row)}>
+                <tr className="cursor-pointer hover:bg-stone-50" key={row.reconciliation_row_id} onClick={() => setSelected(row)}>
                   <td className="px-4 py-3 text-stone-500">{row.issuer_slug}</td>
                   <td className="px-4 py-3">
                     <p className="font-medium text-stone-800">{row.merchant_name}</p>
@@ -365,12 +432,16 @@ export function SaludBeneficios() {
                       <p className="mt-1 text-xs text-amber-700">Falta publicado: {row.published_gap_fields.join(", ")}</p>
                     ) : null}
                   </td>
+                  <td className="px-4 py-3 text-stone-600">
+                    <p>{row.has_active_publication ? "Activa" : "Sin publicación activa"}</p>
+                    <p className="text-xs text-stone-400">Outcome: {row.publication_state}</p>
+                  </td>
                   <td className="px-4 py-3"><Badge verdict={row.verdict} /></td>
                   <td className="whitespace-nowrap px-4 py-3 text-stone-500">{formatDate(row.last_seen_at)}</td>
                 </tr>
               ))}
               {!loading && !page?.rows.length ? (
-                <tr><td className="px-4 py-8 text-center text-stone-400" colSpan={4}>Sin beneficios para estos filtros.</td></tr>
+                <tr><td className="px-4 py-8 text-center text-stone-400" colSpan={5}>Sin observaciones ni beneficios para estos filtros.</td></tr>
               ) : null}
             </tbody>
           </table>
