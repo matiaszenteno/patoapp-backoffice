@@ -63,6 +63,11 @@ const row: RawFidelityRow = {
   extra_published_addresses: null,
   verdict: "raw_drift",
   is_reconciliation_issue: true,
+  stale_redemption_detail_keys: ["code"],
+  location_merchant_match: false,
+  mismatched_location_count: 1,
+  address_presentation_match: false,
+  address_presentation_status: "unexplained_change",
 };
 
 test("excluye de la fidelidad los beneficios que aún no tienen corrida de referencia", () => {
@@ -101,6 +106,9 @@ test("el prompt distingue la referencia del último intento y entrega IDs establ
   assert.match(prompt, /last_attempt_status=failed/);
   assert.match(prompt, /benefit_id=benefit-1/);
   assert.match(prompt, /source_url_count=2/);
+  assert.match(prompt, /stale_redemption_keys=code/);
+  assert.match(prompt, /location_merchant_match=false/);
+  assert.match(prompt, /address_presentation_status=unexplained_change/);
   assert.match(prompt, /última corrida succeeded o succeeded_with_errors/);
-  assert.match(prompt, /no deshagas correcciones humanas válidas/);
+  assert.match(prompt, /no existe un override manual auditable/);
 });
