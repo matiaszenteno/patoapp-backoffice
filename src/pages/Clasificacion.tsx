@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { BenefitRest, InternalNote } from "../components/classification/BenefitRest";
+import { BenefitOffers } from "../components/classification/BenefitOffers";
 import { labelsForFields, ReviewBlock } from "../components/classification/ReviewBlock";
 import { SourcePanel } from "../components/classification/SourcePanel";
 import { getFreshAccessToken } from "../lib/auth";
@@ -10,6 +11,7 @@ import {
   correctionForDraft,
   formFromDraft,
   isCorrectionStale,
+  SUPPORTED_DRAFT_SCHEMA,
   type FormState,
   type IngestionDraft,
 } from "../lib/classification/draft";
@@ -51,8 +53,6 @@ type CardData = {
   /** El schema del draft es más nuevo que el que este cliente sabe leer. */
   unsupported: boolean;
 };
-
-const SUPPORTED_DRAFT_SCHEMA = "2026-07-draft-v1";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -610,6 +610,8 @@ export function Clasificacion() {
                     provenance={provenance}
                     vals={vals}
                   />
+
+                  <BenefitOffers draft={data.draft.draft} />
 
                   <InternalNote
                     onChange={(value) => setField(selectedRow.id, "note", value)}
