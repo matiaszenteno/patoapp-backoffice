@@ -17,6 +17,23 @@ viven en `patoapp-scrapers`.
 
 ## Contexto y skills
 
+La fuente oficial de producto vive en el repositorio `patoapp`, sin copias locales.
+Cuando exista el checkout hermano, leer `../patoapp/docs/product/README.md`,
+`../patoapp/docs/decisions/README.md`, las decisiones relacionadas y
+`../patoapp/.agents/skills/product-thinking/SKILL.md`. Si no está disponible, usar
+las versiones canónicas en GitHub:
+
+- [Producto](https://github.com/matiaszenteno/patoapp/blob/main/docs/product/README.md)
+- [Decisiones](https://github.com/matiaszenteno/patoapp/tree/main/docs/decisions)
+- [Product Thinking](https://github.com/matiaszenteno/patoapp/blob/main/.agents/skills/product-thinking/SKILL.md)
+
+Aplicar `product-thinking` además de las skills locales al planificar, implementar,
+revisar o discutir cambios que puedan alterar usuarios, comportamiento, oferta,
+operación, promesas públicas, métricas, costo, riesgo o contratos entre repositorios.
+Las tareas mecánicas sin impacto de producto no necesitan este paso. Si la fuente
+no está accesible y la ausencia puede cambiar el resultado, declarar la limitación
+en vez de inventar el contexto.
+
 | Qué necesitas | Dónde está |
 |---|---|
 | Comandos, estructura, patrones, EFs | skill `repo-operations` |
@@ -46,4 +63,5 @@ viven en `patoapp-scrapers`.
 
 Esta herramienta opera sobre producción real. Antes de implementar cualquier feature invocar
 `/ops-review`: seguridad de acciones destructivas, blast radius de operaciones masivas,
-feedback operacional explícito, claridad antes que estética.
+feedback operacional explícito, claridad antes que estética. Si además existe impacto de
+producto, aplicar primero el contexto y protocolo transversal de `product-thinking`.
