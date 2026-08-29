@@ -17,6 +17,28 @@ viven en `patoapp-scrapers`.
 
 ## Contexto y skills
 
+`patoapp` mantiene la única fuente editable de producto y este repositorio no
+conserva copias. La versión vigente es la mergeada en `patoapp/main`. Cargar desde
+GitHub:
+
+- [Producto](https://github.com/matiaszenteno/patoapp/blob/main/docs/product/README.md)
+- [Decisiones](https://github.com/matiaszenteno/patoapp/blob/main/docs/decisions/README.md)
+- [Product Thinking](https://github.com/matiaszenteno/patoapp/blob/main/.agents/skills/product-thinking/SKILL.md)
+
+Un checkout hermano `../patoapp` puede reemplazar esas URLs solo después de
+verificar su branch/ref y SHA contra el `patoapp/main` vigente en GitHub. Si la
+tarea identifica explícitamente un PR o SHA coordinado, se puede leer esa
+revisión local como contexto propuesto, nombrándola y contrastándola con `main`.
+La mera existencia del
+directorio no demuestra que sea canónico. Si no se puede acceder a `main` ni a una
+revisión local verificada y la ausencia puede cambiar el resultado, declarar la
+limitación en vez de inventar contexto.
+
+Aplicar `product-thinking` además de las skills locales al planificar, implementar,
+revisar o discutir cambios que puedan alterar usuarios, comportamiento, oferta,
+operación, promesas públicas, métricas, costo, riesgo o contratos entre repositorios.
+Las tareas mecánicas sin impacto de producto no necesitan este paso.
+
 | Qué necesitas | Dónde está |
 |---|---|
 | Comandos, estructura, patrones, EFs | skill `repo-operations` |
@@ -46,4 +68,5 @@ viven en `patoapp-scrapers`.
 
 Esta herramienta opera sobre producción real. Antes de implementar cualquier feature invocar
 `/ops-review`: seguridad de acciones destructivas, blast radius de operaciones masivas,
-feedback operacional explícito, claridad antes que estética.
+feedback operacional explícito, claridad antes que estética. Si además existe impacto de
+producto, aplicar primero el contexto y protocolo transversal de `product-thinking`.
