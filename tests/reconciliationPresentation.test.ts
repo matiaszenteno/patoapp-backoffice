@@ -169,3 +169,26 @@ test("todos los resultados del contrato tienen una explicación no técnica", ()
     assert.ok(explanation.nextStep.length > 10, verdict);
   }
 });
+
+test("prioriza los veredictos nuevos de salud y conserva neutralidad", () => {
+  const neutral = getRowExplanation({ ...row, verdict: "not_published", health_verdict: "in_review", publication_explanation: "Falta confirmación del operador." });
+  assert.equal(neutral.tone, "neutral");
+  assert.match(neutral.description, /Falta confirmación/);
+
+  for (const verdict of ["pipeline_failed", "pipeline_pending", "unexplained_not_published", "location_processing_gap"]) {
+    const explanation = getRowExplanation({
+      ...row,
+      verdict,
+      health_verdict: verdict,
+      failure_stage: "publication",
+      failure_code: "timeout",
+      failure_message: "No respondió a tiempo",
+      address_processing_status: "partial",
+      address_expected_count: 2,
+      address_processed_count: 1,
+      missing_processed_addresses: ["Av. Faltante 123"],
+    });
+    assert.equal(explanation.tone, "attention", verdict);
+    assert.ok(explanation.description.length > 20, verdict);
+  }
+});
