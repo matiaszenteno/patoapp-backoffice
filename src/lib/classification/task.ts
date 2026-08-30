@@ -5,6 +5,7 @@
 import type { FormState } from "./draft.ts";
 import {
   BLOCKER_FIELD,
+  BLOCKER_REVIEW_FIELDS,
   getFieldsToReview,
   getReviewReasons,
   type FieldProvenance,
@@ -17,6 +18,8 @@ export type ReviewTask = {
   doubtFields: string[];
   /** La vigencia ya venció: publicar expondría una oferta muerta en la app. */
   expired: boolean;
+  /** La vigencia es imposible o está invertida y debe corregirse o vaciarse explícitamente. */
+  validityInvalid: boolean;
   /** Campos vacíos que hay que completar antes de publicar. */
   missingFields: string[];
   reasons: string[];
@@ -27,14 +30,20 @@ export function getReviewTask(
   provenance: Record<string, FieldProvenance> | null | undefined,
 ): ReviewTask {
   const reasons = getReviewReasons(provenance);
+  const validityInvalid = blockers.includes("validity_invalid")
+    || reasons.includes("validity_invalid");
   return {
     confirmsReview: blockers.includes("needs_manual_review"),
-    doubtFields: getFieldsToReview(reasons),
+    doubtFields: [...new Set([
+      ...getFieldsToReview(reasons),
+      ...blockers.flatMap((blocker) => BLOCKER_REVIEW_FIELDS[blocker] ?? []),
+    ])],
     expired: blockers.includes("benefit_expired"),
     missingFields: [...new Set(
       blockers.map((blocker) => BLOCKER_FIELD[blocker]).filter((field): field is string => !!field),
     )],
     reasons,
+    validityInvalid,
   };
 }
 
@@ -73,6 +82,27 @@ export function getPrimaryAction(
         : "Corregí la fecha de término antes de publicar",
       label: "Publicar con esta vigencia",
       needsConfirmation: true,
+    };
+  }
+
+  if (
+    task.validityInvalid
+    && vals.starts_at.trim()
+    && vals.ends_at.trim()
+    && vals.starts_at > vals.ends_at
+  ) {
+    return {
+      disabledReason: "La fecha de inicio no puede ser posterior a la fecha de término",
+      label: "Corregir vigencia y publicar",
+      needsConfirmation: false,
+    };
+  }
+
+  if (task.validityInvalid) {
+    return {
+      disabledReason,
+      label: "Corregir vigencia y publicar",
+      needsConfirmation: false,
     };
   }
 

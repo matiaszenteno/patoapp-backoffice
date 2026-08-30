@@ -47,11 +47,13 @@ export const BLOCKER_LABELS: Record<string, string> = {
   semantic_vector_missing: "Falta el vector semántico",
   source_url_missing: "Falta la URL de origen",
   title_missing: "Falta el título",
+  validity_invalid: "La vigencia tiene una fecha inválida o un rango invertido",
 };
 
 export const REVIEW_REASON_LABELS: Record<string, string> = {
   days_ambiguous: "Los días de validez se contradicen en el texto original",
   rules_uncertain: "La IA extrajo reglas pero no confía en ellas",
+  validity_invalid: "La vigencia tiene una fecha inválida o un rango invertido",
   value_ambiguous: "El monto del descuento es ambiguo en el texto original",
 };
 
@@ -68,7 +70,13 @@ export const REASON_FIELDS: Record<string, string[]> = {
     "br_min_compra",
     "br_cuotas_minimas",
   ],
+  validity_invalid: ["starts_at", "ends_at"],
   value_ambiguous: ["value", "value_type"],
+};
+
+/** Blockers que apuntan a campos presentes pero inválidos, no a datos faltantes. */
+export const BLOCKER_REVIEW_FIELDS: Record<string, string[]> = {
+  validity_invalid: ["starts_at", "ends_at"],
 };
 
 /** Campo del form que resuelve cada blocker de tipo "falta el dato". */
