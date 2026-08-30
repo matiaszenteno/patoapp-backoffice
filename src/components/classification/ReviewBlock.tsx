@@ -38,7 +38,7 @@ function WhyBlocked({ blockers, provenance, task }: {
     .sort((a, b) => (a.confidence ?? 0) - (b.confidence ?? 0))
     .map(describeProvenance)[0];
 
-  const texts = [...reasonTexts, ...blockerTexts];
+  const texts = [...new Set([...reasonTexts, ...blockerTexts])];
   if (!texts.length && !task.expired) return null;
 
   return (

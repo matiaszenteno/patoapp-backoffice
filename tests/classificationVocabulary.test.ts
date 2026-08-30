@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  BLOCKER_LABELS,
   describeProvenance,
   formatConfidence,
   getFieldsToReview,
@@ -72,6 +73,11 @@ test("apunta al operador a los campos que originaron la duda", () => {
   assert.deepEqual(getFieldsToReview(["days_ambiguous"]), ["br_dias_mode", "br_dias_validos"]);
   assert.ok(getFieldsToReview(["rules_uncertain"]).includes("br_max_cap"));
   assert.deepEqual(getFieldsToReview(["value_ambiguous"]), ["value", "value_type"]);
+  assert.deepEqual(getFieldsToReview(["validity_invalid"]), ["starts_at", "ends_at"]);
+  assert.equal(
+    BLOCKER_LABELS.validity_invalid,
+    "La vigencia tiene una fecha inválida o un rango invertido",
+  );
 });
 
 test("no repite campos cuando dos razones se solapan", () => {

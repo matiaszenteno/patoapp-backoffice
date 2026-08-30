@@ -76,6 +76,62 @@ test("un beneficio vencido exige confirmación explícita antes de publicar", ()
   assert.equal(action.label, "Publicar con esta vigencia");
 });
 
+test("una vigencia inválida enfoca ambas fechas aunque solo venga como blocker", () => {
+  const task = getReviewTask(["validity_invalid"], null);
+
+  assert.equal(task.validityInvalid, true);
+  assert.deepEqual(task.doubtFields, ["starts_at", "ends_at"]);
+  assert.equal(
+    getPrimaryAction(task, makeVals(), LABELS).label,
+    "Corregir vigencia y publicar",
+  );
+});
+
+test("una razón de vigencia inválida enfoca las fechas y requiere confirmación humana", () => {
+  const task = getReviewTask(["needs_manual_review"], {
+    "needs_review:validity_invalid": { reason: "validity_invalid", source: "scraper" },
+  });
+
+  assert.equal(task.confirmsReview, true);
+  assert.equal(task.validityInvalid, true);
+  assert.deepEqual(task.doubtFields, ["starts_at", "ends_at"]);
+});
+
+test("no permite reenviar un rango todavía invertido", () => {
+  const task = getReviewTask(["validity_invalid", "needs_manual_review"], {
+    "needs_review:validity_invalid": { reason: "validity_invalid", source: "scraper" },
+  });
+  const action = getPrimaryAction(
+    task,
+    makeVals({ starts_at: "2026-12-21", ends_at: "2026-02-27" }),
+    LABELS,
+  );
+
+  assert.equal(
+    action.disabledReason,
+    "La fecha de inicio no puede ser posterior a la fecha de término",
+  );
+  assert.equal(action.label, "Corregir vigencia y publicar");
+});
+
+test("permite corregir el rango o vaciar un extremo ambiguo", () => {
+  const task = getReviewTask(["validity_invalid"], null);
+
+  assert.equal(
+    getPrimaryAction(
+      task,
+      makeVals({ starts_at: "2026-02-01", ends_at: "2026-02-27" }),
+      LABELS,
+    ).disabledReason,
+    null,
+  );
+  assert.equal(
+    getPrimaryAction(task, makeVals({ starts_at: "", ends_at: "2026-02-27" }), LABELS)
+      .disabledReason,
+    null,
+  );
+});
+
 test("no deja publicar un vencido sin fecha de término", () => {
   const task = getReviewTask(["benefit_expired"], null);
   const action = getPrimaryAction(task, makeVals({ ends_at: "" }), LABELS);
