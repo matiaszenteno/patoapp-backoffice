@@ -192,11 +192,23 @@ export function getIssueGroups(summary: RawFidelitySummary | null): IssueGroup[]
   }));
 }
 
-// The RPC gained a health_verdict column after the original dashboard shipped.
-// Keeping this helper here makes filtering and labels use the new contract while
-// preserving legacy verdict responses.
+// The health RPC preserves its original response keys while replacing their
+// semantics with the operational projection. Prefer canonical names when a direct
+// view consumer supplies them, then fall back to the RPC aliases in one place.
 export function getHealthVerdict(row: RawFidelityRow) {
   return row.health_verdict ?? row.verdict;
+}
+
+export function getHealthIssue(row: RawFidelityRow) {
+  return row.is_health_issue ?? row.is_reconciliation_issue;
+}
+
+export function getAddressProcessingMatch(row: RawFidelityRow) {
+  return row.address_processing_match ?? row.address_match;
+}
+
+export function getMissingProcessedAddresses(row: RawFidelityRow) {
+  return row.missing_processed_addresses ?? row.missing_published_addresses ?? [];
 }
 
 export function getPublicationStateExplanation(state: string | null | undefined) {
@@ -211,7 +223,7 @@ export function getRowExplanation(row: RawFidelityRow): Explanation {
   const changedFields = row.raw_drift_fields?.map(humanizeReconciliationField) ?? [];
   const missingFields = row.published_gap_fields?.map(humanizeReconciliationField) ?? [];
   const state = getPublicationStateExplanation(row.publication_state ?? row.draft_status ?? row.raw_status);
-  const verdict = row.health_verdict ?? row.verdict;
+  const verdict = getHealthVerdict(row);
   const publicationExplanation = row.publication_explanation?.trim();
 
   switch (verdict) {
@@ -260,9 +272,10 @@ export function getRowExplanation(row: RawFidelityRow): Explanation {
         tone: "attention",
       };
     case "location_processing_gap":
+      const missingProcessedAddresses = getMissingProcessedAddresses(row);
       return {
         label: "Faltan direcciones procesadas",
-        description: `${row.missing_processed_addresses?.length ?? Math.max(0, (row.address_expected_count ?? row.raw_address_count ?? 0) - (row.address_processed_count ?? 0))} ${row.missing_processed_addresses?.length === 1 ? "dirección esperada no fue" : "direcciones esperadas no fueron"} procesada${row.missing_processed_addresses?.length === 1 ? "" : "s"}.`,
+        description: `${missingProcessedAddresses.length || Math.max(0, (row.address_expected_count ?? row.raw_address_count ?? 0) - (row.address_processed_count ?? row.published_address_count ?? 0))} ${missingProcessedAddresses.length === 1 ? "dirección esperada no fue" : "direcciones esperadas no fueron"} procesada${missingProcessedAddresses.length === 1 ? "" : "s"}.`,
         cause: row.address_processing_status ? `Estado del procesamiento: ${row.address_processing_status}.` : "La publicación no conserva cobertura procesada para todas las direcciones esperadas.",
         nextStep: "Revisar las direcciones faltantes y el estado de procesamiento del comercio.",
         tone: "attention",

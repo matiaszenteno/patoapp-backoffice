@@ -8,7 +8,11 @@ import {
 } from "../lib/benefitRawFidelity";
 import {
   formatScrapeAttemptStatus,
+  getAddressProcessingMatch,
+  getHealthIssue,
+  getHealthVerdict,
   getIssueGroups,
+  getMissingProcessedAddresses,
   getOverviewAnswer,
   getPublicationStateExplanation,
   getRowExplanation,
@@ -117,6 +121,10 @@ function Addresses({ addresses, label }: { addresses: string[] | null; label: st
 function Detail({ onClose, row }: { onClose: () => void; row: RawFidelityRow }) {
   const navigate = useNavigate();
   const explanation = getRowExplanation(row);
+  const addressProcessingMatch = getAddressProcessingMatch(row);
+  const healthIssue = getHealthIssue(row);
+  const healthVerdict = getHealthVerdict(row);
+  const missingProcessedAddresses = getMissingProcessedAddresses(row);
   const publicationState = getPublicationStateExplanation(row.publication_state ?? row.raw_status);
   const normalizedFields = Object.entries(row.normalized_raw_fields ?? {});
   const changedFields = Array.from(new Set([
@@ -203,15 +211,15 @@ function Detail({ onClose, row }: { onClose: () => void; row: RawFidelityRow }) 
             </section>
           ) : null}
 
-          {(row.address_processing_status || row.address_expected_count !== undefined || row.missing_processed_addresses?.length) ? (
-            <section className={`rounded-lg border p-4 text-sm ${row.address_processing_match === false ? "border-red-200 bg-red-50 text-red-900" : "border-stone-200 bg-white text-stone-700"}`}>
+          {(row.address_processing_status || row.address_expected_count !== undefined || missingProcessedAddresses.length) ? (
+            <section className={`rounded-lg border p-4 text-sm ${addressProcessingMatch === false ? "border-red-200 bg-red-50 text-red-900" : "border-stone-200 bg-white text-stone-700"}`}>
               <p className="font-medium">Estado del procesamiento de direcciones</p>
               <div className="mt-3 grid gap-3 sm:grid-cols-3">
                 <div><p className="text-xs text-stone-400">Estado</p><p className="mt-1">{row.address_processing_status ?? "Sin información"}</p></div>
                 <div><p className="text-xs text-stone-400">Esperadas / procesadas</p><p className="mt-1">{row.address_expected_count ?? "—"} / {row.address_processed_count ?? "—"}</p></div>
                 <div><p className="text-xs text-stone-400">Extracción</p><p className="mt-1">{row.address_extraction_processed === false ? "No procesada" : row.address_extraction_confidence !== null && row.address_extraction_confidence !== undefined ? `Confianza ${Math.round(row.address_extraction_confidence * 100)}%` : "Estructurada o sin dato"}</p></div>
               </div>
-              {row.missing_processed_addresses?.length ? <Addresses addresses={row.missing_processed_addresses} label="Direcciones que faltan en el procesamiento" /> : null}
+              {missingProcessedAddresses.length ? <Addresses addresses={missingProcessedAddresses} label="Direcciones que faltan en el procesamiento" /> : null}
             </section>
           ) : null}
 
@@ -225,7 +233,7 @@ function Detail({ onClose, row }: { onClose: () => void; row: RawFidelityRow }) 
           ) : null}
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <Addresses addresses={row.missing_published_addresses} label="Direcciones que entregó el scraper y faltan publicadas" />
+            <Addresses addresses={row.address_processing_status ? null : row.missing_published_addresses} label="Direcciones que entregó el scraper y faltan publicadas" />
             <Addresses addresses={row.extra_published_addresses} label="Direcciones publicadas que no venían en la corrida" />
           </div>
 
@@ -245,7 +253,7 @@ function Detail({ onClose, row }: { onClose: () => void; row: RawFidelityRow }) 
               </div>
               <div>
                 <p className="text-xs font-medium text-stone-400">Salud operacional</p>
-                <p className="mt-1 text-sm text-stone-700">{row.health_verdict ?? row.verdict}{row.is_health_issue === false ? " · neutral" : row.is_health_issue === true ? " · requiere atención" : ""}</p>
+                <p className="mt-1 text-sm text-stone-700">{healthVerdict}{healthIssue ? " · requiere atención" : " · neutral"}</p>
               </div>
               <div>
                 <p className="text-xs font-medium text-stone-400">Intento más reciente</p>
