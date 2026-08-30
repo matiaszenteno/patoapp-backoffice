@@ -3,7 +3,11 @@ import test from "node:test";
 
 import type { RawFidelityRow, RawFidelitySummary } from "../src/lib/benefitRawFidelity.ts";
 import {
+  getAddressProcessingMatch,
+  getHealthIssue,
+  getHealthVerdict,
   getIssueGroups,
+  getMissingProcessedAddresses,
   getOverviewAnswer,
   getPublicationStateExplanation,
   getRowExplanation,
@@ -168,4 +172,65 @@ test("todos los resultados del contrato tienen una explicación no técnica", ()
     assert.ok(explanation.cause.length > 20, verdict);
     assert.ok(explanation.nextStep.length > 10, verdict);
   }
+});
+
+test("prioriza los veredictos nuevos de salud y conserva neutralidad", () => {
+  const neutral = getRowExplanation({ ...row, verdict: "not_published", health_verdict: "in_review", publication_explanation: "Falta confirmación del operador." });
+  assert.equal(neutral.tone, "neutral");
+  assert.match(neutral.description, /Falta confirmación/);
+
+  for (const verdict of ["pipeline_failed", "pipeline_pending", "unexplained_not_published", "location_processing_gap"]) {
+    const explanation = getRowExplanation({
+      ...row,
+      verdict,
+      health_verdict: verdict,
+      failure_stage: "publication",
+      failure_code: "timeout",
+      failure_message: "No respondió a tiempo",
+      address_processing_status: "partial",
+      address_expected_count: 2,
+      address_processed_count: 1,
+      missing_processed_addresses: ["Av. Faltante 123"],
+    });
+    assert.equal(explanation.tone, "attention", verdict);
+    assert.ok(explanation.description.length > 20, verdict);
+  }
+});
+
+test("consume los aliases operacionales que conserva el RPC", () => {
+  const rpcRow = {
+    ...row,
+    verdict: "location_processing_gap",
+    is_reconciliation_issue: true,
+    address_match: false,
+    raw_address_count: 2,
+    published_address_count: 1,
+    missing_published_addresses: ["Av. Faltante 123"],
+    address_processing_status: "structured_missing_publication",
+  };
+
+  assert.equal(getHealthVerdict(rpcRow), "location_processing_gap");
+  assert.equal(getHealthIssue(rpcRow), true);
+  assert.equal(getAddressProcessingMatch(rpcRow), false);
+  assert.deepEqual(getMissingProcessedAddresses(rpcRow), ["Av. Faltante 123"]);
+  assert.match(getRowExplanation(rpcRow).description, /1 dirección esperada no fue procesada/);
+});
+
+test("prefiere los nombres canónicos cuando el consumidor lee la vista", () => {
+  const directViewRow = {
+    ...row,
+    verdict: "ok",
+    is_reconciliation_issue: false,
+    address_match: true,
+    missing_published_addresses: [],
+    health_verdict: "location_processing_gap",
+    is_health_issue: true,
+    address_processing_match: false,
+    missing_processed_addresses: ["Calle Canónica 456"],
+  };
+
+  assert.equal(getHealthVerdict(directViewRow), "location_processing_gap");
+  assert.equal(getHealthIssue(directViewRow), true);
+  assert.equal(getAddressProcessingMatch(directViewRow), false);
+  assert.deepEqual(getMissingProcessedAddresses(directViewRow), ["Calle Canónica 456"]);
 });

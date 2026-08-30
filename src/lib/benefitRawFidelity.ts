@@ -39,6 +39,21 @@ export type RawFidelityRow = {
   mismatched_location_count?: number | null;
   address_presentation_match?: boolean | null;
   address_presentation_status?: string | null;
+  publication_explanation?: string | null;
+  draft_status?: string | null;
+  publication_blockers?: string[] | null;
+  failure_stage?: string | null;
+  failure_code?: string | null;
+  failure_message?: string | null;
+  address_extraction_processed?: boolean | null;
+  address_extraction_confidence?: number | null;
+  address_processing_status?: string | null;
+  address_expected_count?: number | null;
+  address_processed_count?: number | null;
+  address_processing_match?: boolean | null;
+  missing_processed_addresses?: string[] | null;
+  health_verdict?: string | null;
+  is_health_issue?: boolean | null;
 };
 
 export type RawFidelitySummary = {
@@ -58,6 +73,10 @@ export type RawFidelitySummary = {
   reconciliation_issues: number;
   publication_states: Record<string, number>;
   verdicts: Record<string, number>;
+  raw_not_published_breakdown?: Record<string, number> | null;
+  not_published_by_verdict?: Record<string, number> | null;
+  address_states?: Record<string, number> | null;
+  address_processing_states?: Record<string, number> | null;
 };
 
 export type FidelityStats = {
@@ -130,7 +149,7 @@ export function buildRawFidelityInvestigationPrompt({
   const percentage = stats.fidelityPercentage === null ? "sin evidencia comparable" : `${stats.fidelityPercentage}%`;
   return `Investiga las divergencias de fidelidad raw detectadas por benefit_scrape_reconciliation en Patoapp y arma un plan concreto para resolver o explicar cada una.
 
-Contrato: la vista reconcilia en ambos sentidos todos los raws observados en la última corrida exitosa con evidencia congelada y todos los beneficios activos. pending, needs_review, failed e ignored se contabilizan como not_published y no son alertas. La fidelidad se compara solo para outcomes published con publicación activa, usando los campos directos normalizados del scraper: title, description_raw, source_url, image_url, starts_at, ends_at, channel, category_slug, value_type, value, redemption_method, redemption_details y direcciones estructuradas. En redemption_details, una clave extra es enriquecimiento salvo que la propiedad durable pruebe que el mismo valor vino antes del scraper y ahora desapareció. Para locations se separan identidad, pertenencia al merchant y presentación; Google puede explicar un texto distinto sin cambiar la identidad. Si las direcciones solo se derivan desde texto, address_match es no evaluable. Reglas, IA, embeddings y drafts quedan fuera. Una divergencia puede ser intencional, pero hoy no existe un override manual auditable del address: no asumas que un cambio sin procedencia fue manual.
+Contrato: la vista reconcilia en ambos sentidos todos los raws observados en la última corrida exitosa con evidencia congelada y todos los beneficios activos. in_review e intentionally_ignored son estados neutrales; pipeline_failed, pipeline_pending, unexplained_not_published y location_processing_gap son accionables. Se mantienen los veredictos legacy not_published y location_drift. La fidelidad se compara solo para outcomes published con publicación activa, usando los campos directos normalizados del scraper: title, description_raw, source_url, image_url, starts_at, ends_at, channel, category_slug, value_type, value, redemption_method, redemption_details y direcciones estructuradas. Direcciones adicionales y cambios de presentación son neutrales cuando las identidades esperadas están procesadas. Si las direcciones solo se derivan desde texto, address_match es no evaluable. Reglas, IA, embeddings y drafts quedan fuera. Hoy no existe un override manual auditable del address: no asumas que un cambio sin procedencia fue manual.
 
 Semántica temporal: la corrida de referencia es la última corrida succeeded o succeeded_with_errors que tiene evidencia congelada. issuer_last_scrape_* describe solo el último intento terminado y puede corresponder a un intento fallido posterior; no lo uses como corrida de referencia. reference_observation_run_id identifica la referencia solo cuando el beneficio estuvo presente en ella.
 
@@ -141,13 +160,13 @@ Casos visibles:
 ${examples}
 
 1. Para no_completed_run, busca la última corrida exitosa con reconciliation_frozen_at; no confundas esa referencia con el último intento terminado.
-2. Para not_published, úsalo solo como contexto del outcome; no lo conviertas en alerta de reconciliación.
+2. Para in_review e intentionally_ignored, úsalo solo como contexto neutral. Para pipeline_failed, pipeline_pending y unexplained_not_published, investiga la etapa y evidencia faltante.
 3. Para missing_published, confirma por qué un outcome published ya no tiene una publicación activa.
 4. Para raw_missing o absent_from_last_run, identifica la corrida de referencia del emisor y explica por qué el beneficio no quedó observado allí.
 5. Para raw_drift, traza raw_evidence normalizada contra benefits en los campos listados. Distingue defecto, corrección humana intencional y falso positivo.
 6. Si stale_redemption_keys tiene valores, confirma que el valor publicado coincide con el último valor scraper conocido y que la clave ya no viene en el raw actual.
 7. Para location_merchant_mismatch, comprueba que cada benefit_location pertenezca al merchant_id del beneficio; un source_reference correcto no compensa un vínculo cruzado.
-8. Para location_drift, compara las identidades de las direcciones estructuradas del raw congelado contra las benefit_locations activas. Si la extracción era solo desde texto, no interpretes address_match nulo como divergencia.
+8. Para location_drift o location_processing_gap, compara las identidades de las direcciones estructuradas del raw congelado contra las benefit_locations activas y muestra missing_processed_addresses. Direcciones adicionales o texto reformateado no son gaps por sí mismos. Si la extracción era solo desde texto, no interpretes address_match nulo como divergencia.
 9. Para address_presentation_drift, conserva source_reference como identidad y explica por qué cambió el address visible. google_enriched es neutral; unexplained_change e invalid_source_reference requieren investigación. No clasifiques un cambio como manual mientras no exista provenance auditable.
 10. Para duplicate_source_urls, lista las observaciones del beneficio dentro de la corrida de referencia y muestra todas sus source_url.
 11. Agrupa por causa raíz, cuantifica impacto y propone validaciones y criterios verificables de cierre. No ejecutes acciones mutantes sin confirmar primero el alcance.`;

@@ -8,7 +8,11 @@ import {
 } from "../lib/benefitRawFidelity";
 import {
   formatScrapeAttemptStatus,
+  getAddressProcessingMatch,
+  getHealthIssue,
+  getHealthVerdict,
   getIssueGroups,
+  getMissingProcessedAddresses,
   getOverviewAnswer,
   getPublicationStateExplanation,
   getRowExplanation,
@@ -117,6 +121,10 @@ function Addresses({ addresses, label }: { addresses: string[] | null; label: st
 function Detail({ onClose, row }: { onClose: () => void; row: RawFidelityRow }) {
   const navigate = useNavigate();
   const explanation = getRowExplanation(row);
+  const addressProcessingMatch = getAddressProcessingMatch(row);
+  const healthIssue = getHealthIssue(row);
+  const healthVerdict = getHealthVerdict(row);
+  const missingProcessedAddresses = getMissingProcessedAddresses(row);
   const publicationState = getPublicationStateExplanation(row.publication_state ?? row.raw_status);
   const normalizedFields = Object.entries(row.normalized_raw_fields ?? {});
   const changedFields = Array.from(new Set([
@@ -203,8 +211,29 @@ function Detail({ onClose, row }: { onClose: () => void; row: RawFidelityRow }) 
             </section>
           ) : null}
 
+          {(row.address_processing_status || row.address_expected_count !== undefined || missingProcessedAddresses.length) ? (
+            <section className={`rounded-lg border p-4 text-sm ${addressProcessingMatch === false ? "border-red-200 bg-red-50 text-red-900" : "border-stone-200 bg-white text-stone-700"}`}>
+              <p className="font-medium">Estado del procesamiento de direcciones</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                <div><p className="text-xs text-stone-400">Estado</p><p className="mt-1">{row.address_processing_status ?? "Sin información"}</p></div>
+                <div><p className="text-xs text-stone-400">Esperadas / procesadas</p><p className="mt-1">{row.address_expected_count ?? "—"} / {row.address_processed_count ?? "—"}</p></div>
+                <div><p className="text-xs text-stone-400">Extracción</p><p className="mt-1">{row.address_extraction_processed === false ? "No procesada" : row.address_extraction_confidence !== null && row.address_extraction_confidence !== undefined ? `Confianza ${Math.round(row.address_extraction_confidence * 100)}%` : "Estructurada o sin dato"}</p></div>
+              </div>
+              {missingProcessedAddresses.length ? <Addresses addresses={missingProcessedAddresses} label="Direcciones que faltan en el procesamiento" /> : null}
+            </section>
+          ) : null}
+
+          {(row.publication_blockers?.length || row.failure_stage || row.failure_code || row.failure_message) ? (
+            <section className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+              <p className="font-medium">Evidencia del proceso de publicación</p>
+              {row.publication_blockers?.length ? <p className="mt-2">Bloqueos: {row.publication_blockers.join(", ")}</p> : null}
+              {row.failure_stage || row.failure_code ? <p className="mt-2 font-mono text-xs">{row.failure_stage ?? "etapa desconocida"}{row.failure_code ? ` · ${row.failure_code}` : ""}</p> : null}
+              {row.failure_message ? <p className="mt-1 leading-6">{row.failure_message}</p> : null}
+            </section>
+          ) : null}
+
           <div className="grid gap-3 sm:grid-cols-2">
-            <Addresses addresses={row.missing_published_addresses} label="Direcciones que entregó el scraper y faltan publicadas" />
+            <Addresses addresses={row.address_processing_status ? null : row.missing_published_addresses} label="Direcciones que entregó el scraper y faltan publicadas" />
             <Addresses addresses={row.extra_published_addresses} label="Direcciones publicadas que no venían en la corrida" />
           </div>
 
@@ -221,6 +250,10 @@ function Detail({ onClose, row }: { onClose: () => void; row: RawFidelityRow }) 
                       : "Este beneficio no apareció"}
                 </p>
                 <p className="mt-0.5 text-xs text-stone-500">{formatDate(row.last_seen_at)}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-stone-400">Salud operacional</p>
+                <p className="mt-1 text-sm text-stone-700">{healthVerdict}{healthIssue ? " · requiere atención" : " · neutral"}</p>
               </div>
               <div>
                 <p className="text-xs font-medium text-stone-400">Intento más reciente</p>
@@ -255,7 +288,7 @@ function Detail({ onClose, row }: { onClose: () => void; row: RawFidelityRow }) 
               <dt className="text-xs text-stone-400">Código de resultado</dt>
               <dd className="break-all font-mono text-xs">{row.verdict}</dd>
               <dt className="text-xs text-stone-400">Estado interno del proceso</dt>
-              <dd className="break-all font-mono text-xs">{row.publication_state ?? row.raw_status ?? "—"}</dd>
+              <dd className="break-all font-mono text-xs">{row.draft_status ?? row.publication_state ?? row.raw_status ?? "—"}</dd>
               <dt className="text-xs text-stone-400">ID de fila</dt>
               <dd className="break-all font-mono text-xs">{row.reconciliation_row_id}</dd>
               <dt className="text-xs text-stone-400">ID de beneficio</dt>
@@ -382,7 +415,7 @@ function ReconciliationFlow({ summary }: { summary: RawFidelitySummary | null })
 }
 
 function UnpublishedReasons({ summary }: { summary: RawFidelitySummary | null }) {
-  const states = Object.entries(summary?.publication_states ?? {})
+  const states = Object.entries(summary?.raw_not_published_breakdown ?? summary?.not_published_by_verdict ?? summary?.publication_states ?? {})
     .filter(([state, count]) => state !== "published" && count > 0)
     .sort(([left], [right]) => {
       const leftIndex = PUBLICATION_STATE_ORDER.indexOf(left);
@@ -398,7 +431,7 @@ function UnpublishedReasons({ summary }: { summary: RawFidelitySummary | null })
           <h2 className="text-base font-semibold text-sky-950">¿Por qué el scraper encontró cosas que no están publicadas?</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-sky-900/75">
             {summary?.raw_not_published
-              ? `${formatCount(summary.raw_not_published, "hallazgo quedó", "hallazgos quedaron")} fuera del catálogo, pero el proceso de publicación registró dónde se detuvieron. Están explicados y no se cuentan como diferencias entre el scraper y lo publicado.`
+              ? `${formatCount(summary.raw_not_published, "hallazgo quedó", "hallazgos quedaron")} fuera del catálogo, pero el proceso de publicación registró dónde se detuvieron. Los casos en revisión o ignorados son neutrales; fallos, pendientes y casos sin explicación requieren atención.`
               : "Todo lo que encontró el scraper terminó marcado como publicado; no hay hallazgos detenidos en el proceso."}
           </p>
         </div>
@@ -417,6 +450,14 @@ function UnpublishedReasons({ summary }: { summary: RawFidelitySummary | null })
               </div>
             );
           })}
+        </div>
+      ) : null}
+      {Object.keys(summary?.address_states ?? summary?.address_processing_states ?? {}).length ? (
+        <div className="mt-5 rounded-lg border border-sky-200 bg-white p-4">
+          <p className="text-sm font-medium text-stone-900">Estado de direcciones</p>
+          <div className="mt-3 flex flex-wrap gap-3 text-xs text-stone-600">
+            {Object.entries(summary?.address_states ?? summary?.address_processing_states ?? {}).map(([state, count]) => <span className="rounded-full bg-stone-100 px-3 py-1.5" key={state}>{state}: <strong>{count}</strong></span>)}
+          </div>
         </div>
       ) : null}
     </section>

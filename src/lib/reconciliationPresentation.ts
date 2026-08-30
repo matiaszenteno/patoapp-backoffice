@@ -54,6 +54,14 @@ export const PUBLICATION_STATE_EXPLANATIONS: Record<string, { description: strin
   },
 };
 
+const NEW_PUBLICATION_EXPLANATIONS: Record<string, { description: string; label: string }> = {
+  in_review: { label: "Esperando revisión humana", description: "El beneficio quedó en revisión y no se considera una falla de salud." },
+  intentionally_ignored: { label: "Ignorado intencionalmente", description: "El proceso registró que este hallazgo fue ignorado de forma consciente." },
+  pipeline_failed: { label: "Falló el procesamiento", description: "El pipeline no pudo completar este hallazgo y requiere investigación." },
+  pipeline_pending: { label: "Procesamiento pendiente", description: "El hallazgo aún no tiene un estado terminal de publicación." },
+  unexplained_not_published: { label: "No publicado sin explicación", description: "El hallazgo no está publicado y tampoco tiene evidencia suficiente de por qué." },
+};
+
 const FIELD_LABELS: Record<string, string> = {
   category_slug: "Categoría",
   channel: "Dónde se puede usar",
@@ -160,7 +168,7 @@ export function getIssueGroups(summary: RawFidelitySummary | null): IssueGroup[]
       title: "Las direcciones no se explican",
       description: "Falta o sobra una dirección, pertenece a otro comercio o el texto visible cambió sin una procedencia registrada.",
       tone: "attention",
-      verdicts: ["location_merchant_mismatch", "location_drift", "address_presentation_drift"],
+      verdicts: ["location_merchant_mismatch", "location_drift", "address_presentation_drift", "location_processing_gap"],
     },
     {
       key: "duplicates",
@@ -184,8 +192,27 @@ export function getIssueGroups(summary: RawFidelitySummary | null): IssueGroup[]
   }));
 }
 
+// The health RPC preserves its original response keys while replacing their
+// semantics with the operational projection. Prefer canonical names when a direct
+// view consumer supplies them, then fall back to the RPC aliases in one place.
+export function getHealthVerdict(row: RawFidelityRow) {
+  return row.health_verdict ?? row.verdict;
+}
+
+export function getHealthIssue(row: RawFidelityRow) {
+  return row.is_health_issue ?? row.is_reconciliation_issue;
+}
+
+export function getAddressProcessingMatch(row: RawFidelityRow) {
+  return row.address_processing_match ?? row.address_match;
+}
+
+export function getMissingProcessedAddresses(row: RawFidelityRow) {
+  return row.missing_processed_addresses ?? row.missing_published_addresses ?? [];
+}
+
 export function getPublicationStateExplanation(state: string | null | undefined) {
-  return PUBLICATION_STATE_EXPLANATIONS[state ?? "unknown"] ?? PUBLICATION_STATE_EXPLANATIONS.unknown;
+  return NEW_PUBLICATION_EXPLANATIONS[state ?? ""] ?? PUBLICATION_STATE_EXPLANATIONS[state ?? "unknown"] ?? PUBLICATION_STATE_EXPLANATIONS.unknown;
 }
 
 export function humanizeReconciliationField(field: string) {
@@ -195,9 +222,11 @@ export function humanizeReconciliationField(field: string) {
 export function getRowExplanation(row: RawFidelityRow): Explanation {
   const changedFields = row.raw_drift_fields?.map(humanizeReconciliationField) ?? [];
   const missingFields = row.published_gap_fields?.map(humanizeReconciliationField) ?? [];
-  const state = getPublicationStateExplanation(row.publication_state ?? row.raw_status);
+  const state = getPublicationStateExplanation(row.publication_state ?? row.draft_status ?? row.raw_status);
+  const verdict = getHealthVerdict(row);
+  const publicationExplanation = row.publication_explanation?.trim();
 
-  switch (row.verdict) {
+  switch (verdict) {
     case "ok":
       return {
         label: "Coincide con el scraper",
@@ -207,16 +236,49 @@ export function getRowExplanation(row: RawFidelityRow): Explanation {
         tone: "healthy",
       };
     case "not_published":
+    case "in_review":
+    case "intentionally_ignored":
       return {
         label: state.label,
-        description: `${state.description} Por eso no aparece en el catálogo publicado.`,
-        cause: "El hallazgo está contabilizado y tiene una razón registrada; no es una diferencia entre el scraper y una publicación.",
-        nextStep: row.publication_state === "needs_review"
+        description: `${publicationExplanation ?? state.description} Por eso no aparece en el catálogo publicado.`,
+        cause: "El hallazgo está contabilizado y tiene una explicación neutral; no es una diferencia entre el scraper y una publicación.",
+        nextStep: verdict === "in_review" || row.publication_state === "needs_review"
           ? "Revisar la tarea pendiente si se quiere decidir su publicación."
-          : row.publication_state === "failed"
-            ? "Investigar el error del procesamiento antes de intentar publicarlo."
-            : "No requiere corregir esta comparación.",
-        tone: row.publication_state === "failed" ? "waiting" : "neutral",
+          : "No requiere corregir esta comparación.",
+        tone: "neutral",
+      };
+    case "pipeline_failed":
+      return {
+        label: "Falló el procesamiento",
+        description: publicationExplanation ?? "El pipeline encontró un error y no pudo dejar este beneficio listo para publicar.",
+        cause: [row.failure_stage, row.failure_code].filter(Boolean).join(" / ") || "El estado durable del draft indica un fallo.",
+        nextStep: row.failure_message ? `Investigar: ${row.failure_message}` : "Investigar el error antes de reintentar la publicación.",
+        tone: "attention",
+      };
+    case "pipeline_pending":
+      return {
+        label: "Procesamiento pendiente",
+        description: publicationExplanation ?? "El hallazgo no llegó todavía a un estado terminal de publicación.",
+        cause: "No hay un evento durable que confirme publicación, revisión, ignore o fallo.",
+        nextStep: "Revisar el estado del pipeline y sus colas antes de intervenir.",
+        tone: "attention",
+      };
+    case "unexplained_not_published":
+      return {
+        label: "No publicado sin explicación",
+        description: publicationExplanation ?? "No aparece en el catálogo y falta evidencia durable para explicar el resultado.",
+        cause: "El estado del raw, el draft y la publicación no forman una explicación consistente.",
+        nextStep: "Investigar la evidencia congelada y corregir el contrato de publicación.",
+        tone: "attention",
+      };
+    case "location_processing_gap":
+      const missingProcessedAddresses = getMissingProcessedAddresses(row);
+      return {
+        label: "Faltan direcciones procesadas",
+        description: `${missingProcessedAddresses.length || Math.max(0, (row.address_expected_count ?? row.raw_address_count ?? 0) - (row.address_processed_count ?? row.published_address_count ?? 0))} ${missingProcessedAddresses.length === 1 ? "dirección esperada no fue" : "direcciones esperadas no fueron"} procesada${missingProcessedAddresses.length === 1 ? "" : "s"}.`,
+        cause: row.address_processing_status ? `Estado del procesamiento: ${row.address_processing_status}.` : "La publicación no conserva cobertura procesada para todas las direcciones esperadas.",
+        nextStep: "Revisar las direcciones faltantes y el estado de procesamiento del comercio.",
+        tone: "attention",
       };
     case "missing_published":
       return {
