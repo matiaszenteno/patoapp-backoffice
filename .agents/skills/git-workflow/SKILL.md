@@ -5,6 +5,8 @@ description: Use when doing Git or GitHub work in this repo, including branch se
 
 # Git Workflow
 
+> This is repo-maintained local guidance. It is not official GitHub or Codex documentation.
+
 ## Principles
 
 - Keep unrelated local changes out of commits and PRs.
@@ -12,6 +14,13 @@ description: Use when doing Git or GitHub work in this repo, including branch se
 - Prefer small branches with descriptive names.
 - Never use destructive commands such as `git reset --hard`, `git checkout -- <file>`, or force push unless the user explicitly asked and the target is clear.
 - Use `--force-with-lease`, not plain `--force`, when rewriting a branch that has already been pushed.
+
+## Creating Pull Requests From The Sandbox
+
+- Interpret “open a PR”, “create a PR”, and “abre un PR” as creating the pull request with `gh pr create`, not as opening GitHub in a browser.
+- Run `gh` through the environment's host/outside-sandbox execution mechanism. The host already has GitHub CLI authentication in its keyring; do not try to authenticate through a browser and do not ask the user for a token preemptively.
+- Treat an approval to run outside the sandbox as execution permission, not as authentication. Only diagnose authentication if `gh` returns an actual authentication error.
+- Use a browser only when the user explicitly asks to view, show, or open the PR in a browser.
 
 ## Branches
 
