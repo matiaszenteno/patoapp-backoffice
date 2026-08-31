@@ -46,7 +46,7 @@ Alcance: postura de seguridad del backoffice al nivel actual (SPA en GitHub Page
 
 - RLS ya acepta `app_metadata.role = 'admin'` (migración `20260602000001`), pero las
   Edge Functions (`manage-benefit`, `trigger-scraper`, `run-reprocess`,
-  `run-refresh-ai-descriptions`, `refresh-merchant-locations`) autorizan vía
+  `refresh-merchant-locations`) autorizan vía
   `assertBackofficeDeveloper()` en
   `patoapp-scrapers/supabase/functions/_shared/backoffice-auth.ts`, que **solo** chequea
   la lista hardcodeada `DEV_EMAILS`.
@@ -56,7 +56,7 @@ Alcance: postura de seguridad del backoffice al nivel actual (SPA en GitHub Page
   admin" (RLS por rol vs Edge Functions por email).
 - **Fix aplicado (branch `security/role-based-authz` en patoapp-scrapers):**
   `assertBackofficeDeveloper()` ahora valida `user.app_metadata?.role === 'admin'` en vez
-  de `DEV_EMAILS`. Las 5 Edge Functions afectadas fueron redeployadas. Verificado:
+  de `DEV_EMAILS`. Las Edge Functions afectadas fueron redeployadas. Verificado:
   `admin_backoffice` pasa la autorización (400 por body, no 403) y un token sin rol → 403.
 
 ### H3 — MEDIA · ✅ RESUELTO · Emails de admin hardcodeados en dos lugares

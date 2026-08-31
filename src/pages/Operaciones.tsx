@@ -21,7 +21,7 @@ type RunState = {
 };
 
 type MainTab = "scrapers" | "pipeline";
-type PipelineTab = "reprocess" | "enrich_merchants" | "ai_descriptions" | "locations";
+type PipelineTab = "reprocess" | "enrich_merchants" | "locations";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -359,60 +359,6 @@ function EnrichMerchantsTab() {
   );
 }
 
-function AiDescriptionsTab() {
-  const [issuerSlug, setIssuerSlug] = useState("");
-  const [limit, setLimit] = useState("50");
-  const [overwrite, setOverwrite] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<Record<string, unknown> | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  async function run() {
-    setLoading(true); setResult(null); setError(null);
-    const token = await getToken();
-    if (!token) { setError("No autenticado."); setLoading(false); return; }
-    const body: Record<string, unknown> = { force: overwrite, limit: Number(limit) };
-    if (issuerSlug) body.issuerSlug = issuerSlug;
-    const { data, error: fnError } = await supabase.functions.invoke("run-refresh-ai-descriptions", {
-      body,
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    setLoading(false);
-    if (fnError) { setError(fnError.message); return; }
-    setResult(data as Record<string, unknown>);
-  }
-
-  return (
-    <div className="flex flex-col gap-5">
-      <p className="text-sm text-stone-500">Genera o actualiza la descripción corta de beneficios publicados. Por defecto solo procesa los que aún no tienen descripción.</p>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold uppercase tracking-wide text-stone-400">Emisor</label>
-          <IssuerSelect onChange={setIssuerSlug} value={issuerSlug} />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold uppercase tracking-wide text-stone-400">Máximo de beneficios</label>
-          <input className={`${inputCls} w-full`} max={200} min={1} onChange={(e) => setLimit(e.target.value)} type="number" value={limit} />
-        </div>
-      </div>
-      <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-stone-200 bg-white p-3 hover:bg-stone-50">
-        <input checked={overwrite} className="mt-0.5 h-4 w-4 accent-stone-900" onChange={(e) => setOverwrite(e.target.checked)} type="checkbox" />
-        <div>
-          <p className="text-sm font-medium text-stone-800">Sobreescribir descripciones existentes</p>
-          <p className="text-xs text-stone-400">Sin esta opción, solo procesa los que aún no tienen descripción.</p>
-        </div>
-      </label>
-      <div>
-        <button className="rounded-md bg-stone-900 px-5 py-2 text-sm font-medium text-white hover:bg-stone-800 disabled:opacity-50 transition-colors" disabled={loading} onClick={run} type="button">
-          {loading ? "Procesando…" : "Regenerar ahora"}
-        </button>
-        {error && <p className="mt-2 text-sm text-stone-500">{error}</p>}
-        {result && <pre className="mt-3 overflow-auto rounded-lg bg-stone-50 border border-stone-200 p-3 text-xs text-stone-600">{JSON.stringify(result, null, 2)}</pre>}
-      </div>
-    </div>
-  );
-}
-
 function LocationsTab() {
   const [limit, setLimit] = useState("25");
   const [concurrency, setConcurrency] = useState("3");
@@ -478,7 +424,6 @@ function LocationsTab() {
 const PIPELINE_TABS: { id: PipelineTab; label: string }[] = [
   { id: "reprocess", label: "Publicar pendientes" },
   { id: "enrich_merchants", label: "Enriquecer merchants" },
-  { id: "ai_descriptions", label: "Regenerar descripciones" },
   { id: "locations", label: "Ubicaciones" },
 ];
 
@@ -505,7 +450,6 @@ function PipelineContent() {
       <div className="pt-6">
         {activeTab === "reprocess" && <ReprocessTab />}
         {activeTab === "enrich_merchants" && <EnrichMerchantsTab />}
-        {activeTab === "ai_descriptions" && <AiDescriptionsTab />}
         {activeTab === "locations" && <LocationsTab />}
       </div>
     </div>
