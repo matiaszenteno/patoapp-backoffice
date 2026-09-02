@@ -1,16 +1,18 @@
 name: CI
 
-# El repo no tenía checks en los PRs: `npm test` y el typecheck sólo corrían en local,
-# así que un test roto entraba a main sin que nadie se enterara. El deploy tampoco
-# servía de red — corre recién en push a main y hasta ahora no ejecutaba los tests.
 on:
   pull_request:
   push:
     branches:
       - main
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
+    name: test-gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,8 +27,15 @@ jobs:
 
       - run: npm ci
 
-      - run: npm test
+      - name: Run canonical validation
+        run: npm run validate
 
-      # `npm run build` ya corre tsc, pero lo pedimos aparte para que un error de tipos
-      # se reporte como tal y no mezclado con un fallo de bundling.
-      - run: npx tsc --noEmit
+  deploy:
+    if: github.event_name == 'push'
+    needs: test
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/deploy.yml
+    secrets: inherit
