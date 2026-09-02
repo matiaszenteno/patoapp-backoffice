@@ -1,18 +1,7 @@
 name: Deploy to GitHub Pages
 
 on:
-  workflow_run:
-    workflows:
-      - CI
-    types:
-      - completed
-    branches:
-      - main
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+  workflow_call:
 
 concurrency:
   group: pages
@@ -20,12 +9,9 @@ concurrency:
 
 jobs:
   build:
-    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
 
       - uses: actions/setup-node@v4
         with:
@@ -34,7 +20,7 @@ jobs:
 
       - run: npm ci
 
-      # Main CI already passed test-gate for this exact SHA. Only rebuild the
+      # The caller's main CI passed test-gate for this exact SHA. Only rebuild the
       # artifact that is published; do not repeat tests or typechecking.
       - run: npm run bundle
         env:

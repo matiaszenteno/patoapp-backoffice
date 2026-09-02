@@ -29,3 +29,13 @@ jobs:
 
       - name: Run canonical validation
         run: npm run validate
+
+  deploy:
+    if: github.event_name == 'push'
+    needs: test
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/deploy.yml
+    secrets: inherit
