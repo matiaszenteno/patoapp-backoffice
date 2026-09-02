@@ -77,8 +77,10 @@ const { data, error } = await supabase.functions.invoke('nombre-ef', {
 
 Un `test-gate` exitoso sobre `main` dispara `.github/workflows/deploy.yml` → bundle
 → GitHub Pages automáticamente. El deploy reconstruye exactamente ese commit y no
-repite tests ni typecheck. Este gate post-merge compensa que el plan actual de
-GitHub no permite exigir status checks en el repositorio privado.
+repite tests ni typecheck. El repositorio es público y permite exigir el status
+check `test-gate`; mientras `main` no tenga esa protección configurada, confirmar
+el check manualmente antes del merge. El gate post-merge valida el SHA integrado
+que se despliega.
 Variables de producción van como GitHub Secrets (no en `.env`). Agregar variable nueva requiere
 añadirla también como Secret en el repo.
 
