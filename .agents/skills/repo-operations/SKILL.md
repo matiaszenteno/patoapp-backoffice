@@ -16,10 +16,16 @@ Es **pure consumer** de Supabase: no tiene migraciones ni Edge Functions propias
 ```bash
 npm run dev      # dev server → http://localhost:5173/patoapp-backoffice/
 npm run build    # tsc + vite build → dist/
+npm run validate # tests + typecheck + bundle; run once before push/PR
+npm test         # focused pure-logic tests during development
 npx tsc --noEmit # typecheck sin compilar
 ```
 
-No hay tests. Validar cambios corriendo `npm run dev` y navegando manualmente.
+GitHub Actions ejecuta `npm run validate` para cada SHA del PR y nuevamente sobre
+el SHA integrado en `main`, siempre como el job estable `test-gate`. No repetir
+localmente el gate durante review si el SHA no cambió. Los componentes no tienen
+tests automatizados; los cambios de UI también se validan con `npm run dev` y
+navegación manual.
 
 ## Project Structure
 
@@ -69,7 +75,10 @@ const { data, error } = await supabase.functions.invoke('nombre-ef', {
 
 ## Deploy
 
-Push a `main` dispara `.github/workflows/deploy.yml` → build → GitHub Pages automáticamente.
+Un `test-gate` exitoso sobre `main` dispara `.github/workflows/deploy.yml` → bundle
+→ GitHub Pages automáticamente. El deploy reconstruye exactamente ese commit y no
+repite tests ni typecheck. Este gate post-merge compensa que el plan actual de
+GitHub no permite exigir status checks en el repositorio privado.
 Variables de producción van como GitHub Secrets (no en `.env`). Agregar variable nueva requiere
 añadirla también como Secret en el repo.
 

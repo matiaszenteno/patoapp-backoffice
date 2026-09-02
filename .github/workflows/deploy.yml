@@ -1,7 +1,11 @@
 name: Deploy to GitHub Pages
 
 on:
-  push:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
     branches:
       - main
 
@@ -16,11 +20,13 @@ concurrency:
 
 jobs:
   build:
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
-      # 24 para que `npm test` pueda correr los .ts (type stripping sin flag desde 23.6).
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -28,10 +34,9 @@ jobs:
 
       - run: npm ci
 
-      # Antes el deploy sólo construía: un test roto en main se publicaba igual.
-      - run: npm test
-
-      - run: npm run build
+      # Main CI already passed test-gate for this exact SHA. Only rebuild the
+      # artifact that is published; do not repeat tests or typechecking.
+      - run: npm run bundle
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}

@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "bundle": "vite build",
     "test": "node --test tests/*.test.ts",
+    "validate": "npm test && tsc --noEmit && npm run bundle",
     "preview": "vite preview"
   },
   "dependencies": {
