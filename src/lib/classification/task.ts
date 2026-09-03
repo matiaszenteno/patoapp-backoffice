@@ -53,10 +53,37 @@ function isFilled(vals: FormState, field: string): boolean {
   return typeof value === "string" ? value.trim() !== "" : !!value;
 }
 
-/** Campos que siguen vacíos y bloquean la publicación. */
-export function getPendingFields(task: ReviewTask, vals: FormState): string[] {
-  return task.missingFields.filter((field) => !isFilled(vals, field));
+/** Blockers que no se resuelven llenando un campo vacío, porque el campo puede venir con
+ *  valor y aun así estar mal. `merchant_id_missing` es el caso: el pipeline no logró resolver
+ *  el comercio, y la salida es pinear un merchant existente o corregir el nombre — que
+ *  normalmente ya trae algo — para que lo vuelva a resolver. Sin esta excepción el blocker
+ *  quedaría satisfecho por el nombre que el pipeline ya rechazó, el guardado no produciría
+ *  ninguna corrección y el raw se quedaría en la cola para siempre. */
+function isMerchantResolved(vals: FormState, draftVals: FormState | undefined): boolean {
+  if (vals.merchant_id.trim()) return true;
+  if (!draftVals) return false;
+  return vals.merchant_name.trim() !== draftVals.merchant_name.trim()
+    && vals.merchant_name.trim() !== "";
 }
+
+/** Campos que siguen sin resolver y bloquean la publicación.
+ *
+ *  `draftVals` es el formulario tal como lo dejó el draft, sin correcciones: sirve para
+ *  distinguir "el operador cambió esto" de "esto ya venía así". */
+export function getPendingFields(
+  task: ReviewTask,
+  vals: FormState,
+  draftVals?: FormState,
+): string[] {
+  return task.missingFields.filter((field) => (
+    field === "merchant_id" ? !isMerchantResolved(vals, draftVals) : !isFilled(vals, field)
+  ));
+}
+
+/** Mensajes para campos donde "Completá X" no describe la salida real. */
+const PENDING_MESSAGES: Record<string, string> = {
+  merchant_id: "Asigná el merchant, o corregí su nombre para que el pipeline lo resuelva",
+};
 
 export type PrimaryAction = {
   disabledReason: string | null;
@@ -69,11 +96,17 @@ export function getPrimaryAction(
   task: ReviewTask,
   vals: FormState,
   fieldLabels: Record<string, string>,
+  draftVals?: FormState,
 ): PrimaryAction {
-  const pending = getPendingFields(task, vals);
-  const disabledReason = pending.length
-    ? `Completá ${pending.map((field) => fieldLabels[field] ?? field).join(", ")}`
-    : null;
+  const pending = getPendingFields(task, vals, draftVals);
+  const generic = pending.filter((field) => !PENDING_MESSAGES[field]);
+  const reasons = [
+    ...(generic.length
+      ? [`Completá ${generic.map((field) => fieldLabels[field] ?? field).join(", ")}`]
+      : []),
+    ...pending.map((field) => PENDING_MESSAGES[field]).filter(Boolean),
+  ];
+  const disabledReason = reasons.length ? reasons.join(" · ") : null;
 
   if (task.expired) {
     return {

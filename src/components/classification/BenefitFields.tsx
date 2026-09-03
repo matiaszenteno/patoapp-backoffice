@@ -1,6 +1,7 @@
 import { DIAS_OPTIONS, type FormState } from "../../lib/classification/draft";
 import type { FieldProvenance } from "../../lib/classification/vocabulary";
 import { inputCls, inputReqCls } from "../../lib/styles";
+import { useMerchants } from "../../lib/useMerchants";
 import { FieldRow } from "./FieldRow";
 
 export const compactInputCls = `${inputCls} px-2.5 py-1.5 text-xs leading-relaxed`;
@@ -64,8 +65,11 @@ export const FIELD_LABELS: Record<string, string> = {
   ai_description: "Descripción para la app",
   category_slug: "Categoría",
   channel: "Canal",
+  description_raw: "Descripción original",
   ends_at: "Término",
   image_url: "Imagen",
+  merchant_id: "Merchant",
+  merchant_name: "Nombre del merchant",
   redemption_method: "Método de canje",
   starts_at: "Inicio",
   title: "Título",
@@ -75,10 +79,13 @@ export const FIELD_LABELS: Record<string, string> = {
 
 /** Los campos escalares del beneficio, en el orden en que un humano los lee. */
 export const SCALAR_FIELDS = [
+  "merchant_name",
+  "merchant_id",
   "title",
   "category_slug",
   "channel",
   "image_url",
+  "description_raw",
   "ai_description",
   "starts_at",
   "ends_at",
@@ -138,6 +145,34 @@ export function FieldEditor({ field, isMissing, onChange, provenance, vals }: Fi
   ) : null;
 
   switch (field) {
+    case "merchant_id":
+      return (
+        <MerchantIdField
+          isMissing={isMissing}
+          label={label}
+          onChange={onChange}
+          provenance={provenance}
+          vals={vals}
+        />
+      );
+
+    case "merchant_name":
+      return (
+        <FieldRow
+          hint="el pipeline resuelve el merchant a partir de este nombre"
+          label={label}
+          provenance={provenance}
+        >
+          <input
+            className={required(vals.merchant_name)}
+            onChange={(e) => onChange("merchant_name", e.target.value)}
+            placeholder="Nombre comercial tal como lo conoce el usuario"
+            value={vals.merchant_name}
+          />
+          {!vals.merchant_name.trim() && missingHint}
+        </FieldRow>
+      );
+
     case "title":
       return (
         <FieldRow label={label} provenance={provenance}>
@@ -200,6 +235,19 @@ export function FieldEditor({ field, isMissing, onChange, provenance, vals }: Fi
               />
             )}
           </div>
+        </FieldRow>
+      );
+
+    case "description_raw":
+      return (
+        <FieldRow hint="texto completo, como lo publica el emisor" label={label} provenance={provenance}>
+          <textarea
+            className={`${required(vals.description_raw)} min-h-24 resize-y`}
+            onChange={(e) => onChange("description_raw", e.target.value)}
+            placeholder="Descripción larga del beneficio"
+            value={vals.description_raw}
+          />
+          {!vals.description_raw.trim() && missingHint}
         </FieldRow>
       );
 
@@ -283,6 +331,63 @@ export function FieldEditor({ field, isMissing, onChange, provenance, vals }: Fi
     default:
       return null;
   }
+}
+
+/** Selector de merchant contra el catálogo real. Va aparte porque necesita el listado y los
+ *  hooks no pueden vivir dentro del switch de FieldEditor. */
+function MerchantIdField({ isMissing, label, onChange, provenance, vals }: {
+  isMissing?: boolean;
+  label: string;
+  onChange: <K extends keyof FormState>(field: K, val: FormState[K]) => void;
+  provenance?: FieldProvenance | null;
+  vals: FormState;
+}) {
+  const { error, loading, merchants } = useMerchants();
+  const known = merchants.some((merchant) => merchant.id === vals.merchant_id);
+
+  return (
+    <FieldRow
+      hint={loading ? "cargando catálogo…" : undefined}
+      label={label}
+      provenance={provenance}
+    >
+      <select
+        className={isMissing && !vals.merchant_id
+          ? `${compactReqCls} cursor-pointer`
+          : compactSelectCls}
+        onChange={(e) => {
+          const id = e.target.value;
+          onChange("merchant_id", id);
+          // Un id sin el nombre que le corresponde deja la corrección contradiciéndose: el
+          // pipeline re-resuelve por nombre y devolvería el raw a la cola.
+          const picked = merchants.find((merchant) => merchant.id === id);
+          if (picked) onChange("merchant_name", picked.name);
+        }}
+        value={vals.merchant_id}
+      >
+        <option value="">— sin asignar —</option>
+        {vals.merchant_id && !known && (
+          <option value={vals.merchant_id}>
+            {vals.merchant_name || vals.merchant_id} (fuera del catálogo)
+          </option>
+        )}
+        {merchants.map((merchant) => (
+          <option key={merchant.id} value={merchant.id}>{merchant.name}</option>
+        ))}
+      </select>
+      {error && (
+        <p className="text-[10px] font-medium text-red-700">
+          No se pudo cargar el catálogo de merchants: {error}
+        </p>
+      )}
+      {isMissing && !vals.merchant_id && (
+        <p className="text-[10px] leading-relaxed text-stone-400">
+          Si el comercio todavía no existe en el catálogo, dejalo sin asignar y corregí el
+          nombre: el pipeline lo resuelve —o lo crea— al reprocesar.
+        </p>
+      )}
+    </FieldRow>
+  );
 }
 
 function RedemptionDetailsFields({ method, code, url, onCode, onUrl }: {

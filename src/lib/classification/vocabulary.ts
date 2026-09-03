@@ -86,6 +86,8 @@ export const BLOCKER_FIELD: Record<string, string> = {
   channel_missing: "channel",
   description_missing: "ai_description",
   image_url_missing: "image_url",
+  merchant_id_missing: "merchant_id",
+  merchant_name_missing: "merchant_name",
   title_missing: "title",
 };
 
