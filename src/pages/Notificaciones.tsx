@@ -572,7 +572,7 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
               value={userSearch}
             />
             {userResults.length > 0 && (
-              <ul className="flex flex-col divide-y divide-stone-100 rounded-md border border-stone-200">
+              <ul className="flex max-h-64 flex-col divide-y divide-stone-100 overflow-y-auto rounded-md border border-stone-200">
                 {userResults.map((u) => (
                   <li key={u.id}>
                     <button
@@ -633,17 +633,19 @@ export function Notificaciones() {
   }, [loadCampaigns]);
 
   return (
-    <div className="max-w-3xl mx-auto px-6 py-8 flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-bold text-stone-900">Notificaciones</h1>
-        <p className="mt-0.5 text-sm text-stone-500">Campañas de push con deep-link a un destino de la app.</p>
-      </div>
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-3xl mx-auto px-6 py-8 flex flex-col gap-6">
+        <div>
+          <h1 className="text-xl font-bold text-stone-900">Notificaciones</h1>
+          <p className="mt-0.5 text-sm text-stone-500">Campañas de push con deep-link a un destino de la app.</p>
+        </div>
 
-      <CampaignForm onCreated={loadCampaigns} />
+        <CampaignForm onCreated={loadCampaigns} />
 
-      <div className="flex flex-col gap-3">
-        <h2 className="text-base font-semibold text-stone-900">Historial</h2>
-        <CampaignsList campaigns={campaigns} loading={loading} />
+        <div className="flex flex-col gap-3">
+          <h2 className="text-base font-semibold text-stone-900">Historial</h2>
+          <CampaignsList campaigns={campaigns} loading={loading} />
+        </div>
       </div>
     </div>
   );
