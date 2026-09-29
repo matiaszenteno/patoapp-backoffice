@@ -7,6 +7,7 @@ import {
   formatConfidence,
   getFieldsToReview,
   getReviewReasons,
+  REVIEW_REASON_LABELS,
 } from "../src/lib/classification/vocabulary.ts";
 
 test("no inventa confianza para datos que no son inferencias", () => {
@@ -94,4 +95,14 @@ test("formatConfidence ignora valores que no son números finitos", () => {
   assert.equal(formatConfidence(undefined), null);
   assert.equal(formatConfidence(Number.NaN), null);
   assert.equal(formatConfidence(0), "0%");
+});
+
+test("explica en humano un raw que vuelve a la cola después de ser descartado", () => {
+  // El pipeline (patoapp-scrapers) manda a revisión un raw descartado o retirado cuya fuente
+  // cambió, con la razón `previously_discarded`. Sin etiqueta, el operador vería el código.
+  const reasons = getReviewReasons({ "needs_review:previously_discarded": { source: "manual" } });
+  assert.deepEqual(reasons, ["previously_discarded"]);
+  assert.match(REVIEW_REASON_LABELS.previously_discarded, /descartó o retiró/);
+  // No apunta a campos puntuales: el operador tiene que mirar el beneficio completo.
+  assert.deepEqual(getFieldsToReview(reasons), []);
 });

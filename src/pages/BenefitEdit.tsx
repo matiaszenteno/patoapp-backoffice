@@ -367,7 +367,13 @@ export function BenefitEdit() {
 
   const handleDelete = async () => {
     if (!id) return;
-    if (!confirm("¿Eliminar este beneficio? Esta acción no se puede deshacer.")) return;
+    // `delete` es un retiro durable (retire_benefit), no un borrado físico: el beneficio deja
+    // de mostrarse, queda registrado quién lo retiró y no vuelve a publicarse solo.
+    if (
+      !confirm(
+        "¿Eliminar este beneficio? Deja de mostrarse en la app y no vuelve a publicarse solo; si la fuente cambia, vuelve a la cola de clasificación.",
+      )
+    ) return;
 
     setDeleting(true);
     const { error } = await invokeManageBenefit("delete");
@@ -382,7 +388,11 @@ export function BenefitEdit() {
 
   const handleExpire = async () => {
     if (!id) return;
-    if (!confirm("¿Expirar este beneficio ahora? Dejará de mostrarse como activo.")) return;
+    if (
+      !confirm(
+        "¿Expirar este beneficio ahora? Deja de mostrarse en la app y no vuelve a publicarse solo; si la fuente cambia, vuelve a la cola de clasificación.",
+      )
+    ) return;
     setSaving(true);
     setErrorMsg(null);
     const { error } = await invokeManageBenefit("expire");
