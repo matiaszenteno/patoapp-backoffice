@@ -52,6 +52,8 @@ export const BLOCKER_LABELS: Record<string, string> = {
 
 export const REVIEW_REASON_LABELS: Record<string, string> = {
   days_ambiguous: "Los días de validez se contradicen en el texto original",
+  previously_discarded:
+    "Un humano lo descartó o retiró antes y la fuente cambió; confirmá si ahora sí es un beneficio",
   rules_uncertain: "La IA extrajo reglas pero no confía en ellas",
   validity_invalid: "La vigencia tiene una fecha inválida o un rango invertido",
   value_ambiguous: "El monto del descuento es ambiguo en el texto original",
