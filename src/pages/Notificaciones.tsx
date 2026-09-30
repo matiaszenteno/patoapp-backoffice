@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { supabase } from "../lib/supabase";
 import { getFreshAccessToken } from "../lib/auth";
@@ -49,6 +49,13 @@ type CategoryOption = {
 type ProfileOption = {
   id: string;
   label: string;
+};
+
+type ReceiptReconciliationSummary = {
+  candidates?: number;
+  receiptOk?: number;
+  receiptFailed?: number;
+  receiptsMissing?: number;
 };
 
 function statusLabel(status: string): string {
@@ -640,6 +647,9 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
 export function Notificaciones() {
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshingDeliveries, setRefreshingDeliveries] = useState(false);
+  const [deliveryRefreshMessage, setDeliveryRefreshMessage] = useState<string | null>(null);
+  const reconciledOnEntry = useRef(false);
 
   const loadCampaigns = useCallback(async () => {
     setLoading(true);
@@ -672,9 +682,49 @@ export function Notificaciones() {
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    loadCampaigns();
+  const refreshDeliveries = useCallback(async () => {
+    setRefreshingDeliveries(true);
+    setDeliveryRefreshMessage(null);
+
+    const token = await getFreshAccessToken();
+    if (!token) {
+      setDeliveryRefreshMessage("No se pudieron actualizar las entregas: sesión no disponible.");
+      setRefreshingDeliveries(false);
+      await loadCampaigns();
+      return;
+    }
+
+    const { data, error } = await supabase.functions.invoke(
+      "reconcile-push-receipts",
+      {
+        body: {},
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    if (error) {
+      setDeliveryRefreshMessage(`No se pudieron consultar los receipts: ${error.message}`);
+    } else {
+      const summary = (data ?? {}) as ReceiptReconciliationSummary;
+      const candidates = summary.candidates ?? 0;
+      const ok = summary.receiptOk ?? 0;
+      const failed = summary.receiptFailed ?? 0;
+      const pending = summary.receiptsMissing ?? 0;
+      setDeliveryRefreshMessage(
+        candidates === 0
+          ? "No había entregas pendientes de confirmar."
+          : `Receipts consultados: ${candidates}; ${ok} confirmados, ${failed} fallidos y ${pending} aún pendientes.`,
+      );
+    }
+
+    await loadCampaigns();
+    setRefreshingDeliveries(false);
   }, [loadCampaigns]);
+
+  useEffect(() => {
+    if (reconciledOnEntry.current) return;
+    reconciledOnEntry.current = true;
+    void refreshDeliveries();
+  }, [refreshDeliveries]);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -687,7 +737,25 @@ export function Notificaciones() {
         <CampaignForm onCreated={loadCampaigns} />
 
         <div className="flex flex-col gap-3">
-          <h2 className="text-base font-semibold text-stone-900">Historial</h2>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-stone-900">Historial</h2>
+              <p className="mt-0.5 text-xs text-stone-500">
+                Se consulta a Expo una vez al entrar. Puede tardar hasta 15 minutos en publicar receipts.
+              </p>
+            </div>
+            <button
+              className="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50 disabled:opacity-60"
+              disabled={refreshingDeliveries}
+              onClick={() => void refreshDeliveries()}
+              type="button"
+            >
+              {refreshingDeliveries ? "Actualizando..." : "Actualizar entregas"}
+            </button>
+          </div>
+          {deliveryRefreshMessage ? (
+            <p className="text-xs text-stone-500">{deliveryRefreshMessage}</p>
+          ) : null}
           <CampaignsList campaigns={campaigns} loading={loading} />
         </div>
       </div>
