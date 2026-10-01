@@ -20,7 +20,6 @@ export const CATEGORY_SLUG_OPTIONS = [
   { label: "Restaurantes", value: "restaurantes" },
   { label: "Salud y Belleza", value: "salud-belleza" },
   { label: "Servicios", value: "servicios" },
-  { label: "Streaming", value: "streaming" },
   { label: "Supermercados", value: "supermercados" },
   { label: "Tecnología", value: "tecnologia" },
   { label: "Viajes", value: "viajes" },
