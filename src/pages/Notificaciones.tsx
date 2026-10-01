@@ -1,10 +1,25 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
-import { z } from "zod";
 import { supabase } from "../lib/supabase";
 import { getFreshAccessToken } from "../lib/auth";
 import { inputCls, selectCls } from "../lib/styles";
+import {
+  acceptedByExpo,
+  acceptedByProvider,
+  BODY_MAX,
+  buildCampaignData,
+  type CampaignDeliveryCounts,
+  type CampaignFormValues,
+  type CampaignSendResponse,
+  createCampaignSchema,
+  DEFAULT_SEARCH_MIN_QUERY_LENGTH,
+  defaultCampaignValues,
+  describeCampaignSendResult,
+  pendingDelivery,
+  TITLE_MAX,
+  totalFailed,
+} from "../lib/notificationCampaigns";
 
 // ---------- Tipos ----------
 
@@ -15,12 +30,15 @@ type CampaignRow = {
   sent_count: number | null;
   created_at: string;
   sent_at: string | null;
+  error_message: string | null;
+  deliveryCounts?: CampaignDeliveryCounts;
 };
 
 type BenefitOption = {
   id: string;
   title: string;
   issuerName: string | null;
+  issuerType: string | null;
 };
 
 type CategoryOption = {
@@ -33,72 +51,18 @@ type ProfileOption = {
   label: string;
 };
 
-const TITLE_MAX = 120;
-const BODY_MAX = 300;
-
-// ---------- Validación (espejo del contrato de `data`) ----------
-
-const schema = z
-  .object({
-    title: z.string().min(1, "Requerido").max(TITLE_MAX, `Máximo ${TITLE_MAX} caracteres`),
-    body: z.string().min(1, "Requerido").max(BODY_MAX, `Máximo ${BODY_MAX} caracteres`),
-    dest: z.enum(["benefit", "feed", "nearby"]),
-    benefit_id: z.string(),
-    feedFilter: z.enum(["none", "category", "query"]),
-    category_slug: z.string(),
-    query: z.string(),
-    audience: z.enum(["all", "users"]),
-    target_user_ids: z.array(z.string()),
-  })
-  .superRefine((val, ctx) => {
-    if (val.dest === "benefit" && !val.benefit_id) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["benefit_id"], message: "Seleccioná un beneficio." });
-    }
-    if (val.dest === "feed" && val.feedFilter === "category" && !val.category_slug) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["category_slug"], message: "Seleccioná una categoría." });
-    }
-    if (val.dest === "feed" && val.feedFilter === "query" && !val.query.trim()) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["query"], message: "Ingresá un término de búsqueda." });
-    }
-    if (val.dest === "feed" && val.feedFilter === "category" && val.query.trim()) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["query"], message: "categoría y búsqueda son excluyentes." });
-    }
-    if (val.audience === "users" && val.target_user_ids.length === 0) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["target_user_ids"], message: "Elegí al menos un usuario." });
-    }
-  });
-
-type FormValues = z.infer<typeof schema>;
-
-const defaultValues: FormValues = {
-  title: "",
-  body: "",
-  dest: "feed",
-  benefit_id: "",
-  feedFilter: "none",
-  category_slug: "",
-  query: "",
-  audience: "all",
-  target_user_ids: [],
+type ReceiptReconciliationSummary = {
+  candidates?: number;
+  receiptOk?: number;
+  receiptFailed?: number;
+  receiptsMissing?: number;
 };
-
-function buildData(values: FormValues): Record<string, unknown> {
-  if (values.dest === "benefit") {
-    return { dest: "benefit", benefit_id: values.benefit_id };
-  }
-  if (values.dest === "feed") {
-    if (values.feedFilter === "category") return { dest: "feed", category_slug: values.category_slug };
-    if (values.feedFilter === "query") return { dest: "feed", query: values.query.trim() };
-    return { dest: "feed" };
-  }
-  return { dest: "nearby" };
-}
 
 function statusLabel(status: string): string {
   switch (status) {
     case "pending": return "Pendiente";
     case "sending": return "Enviando";
-    case "sent": return "Enviada";
+    case "sent": return "Procesada";
     case "failed": return "Falló";
     default: return status;
   }
@@ -126,20 +90,27 @@ function Field({
 
 function CampaignsList({ campaigns, loading }: { campaigns: CampaignRow[]; loading: boolean }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-stone-200 bg-white">
+    <div className="overflow-x-auto rounded-lg border border-stone-200 bg-white">
       <table className="w-full text-sm">
         <thead className="border-b border-stone-200 bg-stone-50 text-left text-xs font-medium uppercase tracking-wide text-stone-500">
           <tr>
             <th className="px-4 py-3">Título</th>
             <th className="px-4 py-3">Estado</th>
-            <th className="px-4 py-3">Enviadas</th>
+            <th className="px-4 py-3">Expo aceptó</th>
+            <th className="px-4 py-3">Proveedor OK</th>
+            <th className="px-4 py-3">Pendientes</th>
+            <th className="px-4 py-3">Fallidas</th>
+            <th className="px-4 py-3">Omitidas</th>
             <th className="px-4 py-3">Fecha</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-stone-100">
           {campaigns.map((c) => (
             <tr key={c.id}>
-              <td className="px-4 py-3 font-medium text-stone-900">{c.title}</td>
+              <td className="min-w-52 px-4 py-3 font-medium text-stone-900">
+                {c.title}
+                {c.error_message ? <p className="mt-1 text-xs font-normal text-red-600">{c.error_message}</p> : null}
+              </td>
               <td className="px-4 py-3">
                 <span
                   className={`inline-block rounded border px-2 py-0.5 text-xs ${
@@ -153,7 +124,21 @@ function CampaignsList({ campaigns, loading }: { campaigns: CampaignRow[]; loadi
                   {statusLabel(c.status)}
                 </span>
               </td>
-              <td className="px-4 py-3 text-stone-500">{c.sent_count ?? "—"}</td>
+              <td className="px-4 py-3 text-stone-500">
+                {c.deliveryCounts ? acceptedByExpo(c.deliveryCounts) : (c.sent_count ?? "—")}
+              </td>
+              <td className="px-4 py-3 text-stone-500">
+                {c.deliveryCounts ? acceptedByProvider(c.deliveryCounts) : "—"}
+              </td>
+              <td className="px-4 py-3 text-stone-500">
+                {c.deliveryCounts ? pendingDelivery(c.deliveryCounts) : "—"}
+              </td>
+              <td className="px-4 py-3 text-stone-500">
+                {c.deliveryCounts ? totalFailed(c.deliveryCounts) : "—"}
+              </td>
+              <td className="px-4 py-3 text-stone-500">
+                {c.deliveryCounts?.skipped ?? "—"}
+              </td>
               <td className="px-4 py-3 text-stone-500">
                 {(c.sent_at ?? c.created_at).substring(0, 16).replace("T", " ")}
               </td>
@@ -161,7 +146,7 @@ function CampaignsList({ campaigns, loading }: { campaigns: CampaignRow[]; loadi
           ))}
           {!loading && campaigns.length === 0 && (
             <tr>
-              <td className="px-4 py-8 text-center text-stone-400" colSpan={4}>
+              <td className="px-4 py-8 text-center text-stone-400" colSpan={9}>
                 Sin campañas todavía
               </td>
             </tr>
@@ -176,6 +161,13 @@ function CampaignsList({ campaigns, loading }: { campaigns: CampaignRow[]; loadi
 // ---------- Formulario de creación ----------
 
 function CampaignForm({ onCreated }: { onCreated: () => void }) {
+  const [searchMinQueryLength, setSearchMinQueryLength] = useState(
+    DEFAULT_SEARCH_MIN_QUERY_LENGTH,
+  );
+  const schema = useMemo(
+    () => createCampaignSchema(searchMinQueryLength),
+    [searchMinQueryLength],
+  );
   const {
     clearErrors,
     formState: { errors },
@@ -184,15 +176,15 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
     reset,
     setValue,
     watch,
-  } = useForm<FormValues>({
+  } = useForm<CampaignFormValues>({
     resolver: zodResolver(schema),
-    defaultValues,
+    defaultValues: defaultCampaignValues,
   });
 
   const title = watch("title");
   const body = watch("body");
   const dest = watch("dest");
-  const feedFilter = watch("feedFilter");
+  const discoveryFilter = watch("discoveryFilter");
   const audience = watch("audience");
 
   const [categories, setCategories] = useState<CategoryOption[]>([]);
@@ -217,6 +209,20 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
       .then(({ data }) => setCategories((data as CategoryOption[] | null) ?? []));
   }, []);
 
+  useEffect(() => {
+    supabase
+      .from("app_config")
+      .select("value")
+      .eq("key", "search_min_query_length")
+      .maybeSingle()
+      .then(({ data }) => {
+        const parsed = Number(data?.value);
+        if (Number.isInteger(parsed) && parsed > 0) {
+          setSearchMinQueryLength(parsed);
+        }
+      });
+  }, []);
+
   // Autocomplete de beneficios publicados (status='active'), por título.
   useEffect(() => {
     const term = benefitSearch.trim();
@@ -228,7 +234,7 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
     const handle = setTimeout(async () => {
       const { data } = await supabase
         .from("benefits")
-        .select("id, title, status, issuers(name)")
+        .select("id, title, status, issuers(name, type)")
         .eq("status", "active")
         .ilike("title", `%${term}%`)
         .limit(10);
@@ -237,7 +243,8 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
         (data ?? []).map((b) => ({
           id: b.id as string,
           title: b.title as string,
-          issuerName: (b.issuers as unknown as { name: string } | null)?.name ?? null,
+          issuerName: (b.issuers as unknown as { name: string; type: string } | null)?.name ?? null,
+          issuerType: (b.issuers as unknown as { name: string; type: string } | null)?.type ?? null,
         })),
       );
     }, 250);
@@ -292,7 +299,7 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
     setValue("benefit_id", "", { shouldValidate: true });
   };
 
-  const changeDestination = (next: FormValues["dest"]) => {
+  const changeDestination = (next: CampaignFormValues["dest"]) => {
     if (next !== "benefit") {
       setSelectedBenefit(null);
       setBenefitSearch("");
@@ -301,8 +308,8 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
       clearErrors("benefit_id");
     }
 
-    if (next !== "feed") {
-      setValue("feedFilter", "none", { shouldValidate: false });
+    if (next !== "feed" && next !== "nearby") {
+      setValue("discoveryFilter", "none", { shouldValidate: false });
       setValue("category_slug", "", { shouldValidate: false });
       setValue("query", "", { shouldValidate: false });
       clearErrors(["category_slug", "query"]);
@@ -311,7 +318,7 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
     setValue("dest", next, { shouldValidate: true });
   };
 
-  const changeFeedFilter = (next: FormValues["feedFilter"]) => {
+  const changeDiscoveryFilter = (next: CampaignFormValues["discoveryFilter"]) => {
     if (next !== "category") {
       setValue("category_slug", "", { shouldValidate: false });
       clearErrors("category_slug");
@@ -320,7 +327,7 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
       setValue("query", "", { shouldValidate: false });
       clearErrors("query");
     }
-    setValue("feedFilter", next, { shouldValidate: true });
+    setValue("discoveryFilter", next, { shouldValidate: true });
   };
 
   const addUser = (u: ProfileOption) => {
@@ -345,7 +352,7 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
     const payload = {
       title: values.title.trim(),
       body: values.body.trim(),
-      data: buildData(values),
+      data: buildCampaignData(values),
       target: values.audience,
       target_user_ids: values.audience === "users" ? values.target_user_ids : null,
     };
@@ -370,7 +377,7 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
       return;
     }
 
-    const { error: fnError } = await supabase.functions.invoke("send-campaign", {
+    const { data: functionData, error: fnError } = await supabase.functions.invoke("send-campaign", {
       body: { campaign_id: inserted.id },
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -379,8 +386,17 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
     if (fnError) {
       setErrorMsg(`Campaña creada, pero falló el envío: ${fnError.message}`);
     } else {
-      setSuccessMsg("Campaña creada y enviada.");
-      reset(defaultValues);
+      const outcome = describeCampaignSendResult(
+        inserted.id,
+        functionData as CampaignSendResponse | null,
+      );
+      if (!outcome.ok) {
+        setErrorMsg(`Campaña creada, pero no se completó el envío: ${outcome.message}`);
+        onCreated();
+        return;
+      }
+      setSuccessMsg(outcome.message);
+      reset(defaultCampaignValues);
       setSelectedBenefit(null);
       setSelectedUsers([]);
     }
@@ -411,9 +427,11 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
         <p className="text-sm font-medium text-stone-700">Destino</p>
         <div className="flex flex-wrap gap-2">
           {([
+            { value: "none", label: "Sin destino" },
             { value: "benefit", label: "Beneficio" },
             { value: "feed", label: "Feed" },
-            { value: "nearby", label: "Nearby" },
+            { value: "nearby", label: "Cerca" },
+            { value: "profile", label: "Perfil" },
           ] as const).map((opt) => (
             <label
               key={opt.value}
@@ -444,7 +462,9 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
                   </button>
                 </div>
                 <div className="rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-800">
-                  Llega solo a usuarios de {selectedBenefit.issuerName ?? "este emisor"}
+                  {selectedBenefit.issuerType === "platform"
+                    ? "Beneficio universal de Pato: conserva la audiencia elegida abajo."
+                    : `La audiencia se limitará a usuarios afiliados a ${selectedBenefit.issuerName ?? "este emisor"}.`}
                 </div>
               </div>
             ) : (
@@ -478,8 +498,11 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
           </div>
         )}
 
-        {dest === "feed" && (
+        {(dest === "feed" || dest === "nearby") && (
           <div className="flex flex-col gap-3 rounded-md border border-stone-200 p-3">
+            <p className="text-xs text-stone-500">
+              {dest === "feed" ? "Abre el feed" : "Abre el mapa Cerca"}; el filtro se aplicará al entrar.
+            </p>
             <div className="flex flex-col gap-2">
               {([
                 { value: "none", label: "Sin filtro" },
@@ -488,9 +511,9 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
               ] as const).map((opt) => (
                 <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-700" key={opt.value}>
                   <input
-                    checked={feedFilter === opt.value}
+                    checked={discoveryFilter === opt.value}
                     className="h-4 w-4"
-                    onChange={() => changeFeedFilter(opt.value)}
+                    onChange={() => changeDiscoveryFilter(opt.value)}
                     type="radio"
                   />
                   {opt.label}
@@ -498,7 +521,7 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
               ))}
             </div>
 
-            {feedFilter === "category" && (
+            {discoveryFilter === "category" && (
               <Field error={errors.category_slug?.message} label="Categoría">
                 <select className={selectCls} {...register("category_slug")}>
                   <option value="">— seleccionar —</option>
@@ -509,16 +532,24 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
               </Field>
             )}
 
-            {feedFilter === "query" && (
+            {discoveryFilter === "query" && (
               <Field error={errors.query?.message} label="Búsqueda">
-                <input className={inputCls} placeholder="ej: café" {...register("query")} />
+                <input
+                  className={inputCls}
+                  placeholder={`ej: café (mínimo ${searchMinQueryLength})`}
+                  {...register("query")}
+                />
               </Field>
             )}
           </div>
         )}
 
-        {dest === "nearby" && (
-          <p className="text-sm text-stone-500">Abre el mapa/cercanía, sin filtros adicionales.</p>
+        {dest === "none" && (
+          <p className="text-sm text-stone-500">Muestra el mensaje sin navegar al tocarlo.</p>
+        )}
+
+        {dest === "profile" && (
+          <p className="text-sm text-stone-500">Abre la pestaña Perfil.</p>
         )}
       </div>
 
@@ -616,34 +647,115 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
 export function Notificaciones() {
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshingDeliveries, setRefreshingDeliveries] = useState(false);
+  const [deliveryRefreshMessage, setDeliveryRefreshMessage] = useState<string | null>(null);
+  const reconciledOnEntry = useRef(false);
 
   const loadCampaigns = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase
       .from("notification_campaigns")
-      .select("id, title, status, sent_count, created_at, sent_at")
+      .select("id, title, status, sent_count, error_message, created_at, sent_at")
       .order("created_at", { ascending: false })
       .limit(100);
-    setCampaigns((data as CampaignRow[] | null) ?? []);
+    const rows = (data as CampaignRow[] | null) ?? [];
+    if (rows.length === 0) {
+      setCampaigns([]);
+      setLoading(false);
+      return;
+    }
+
+    const { data: deliveryCounts } = await supabase.rpc(
+      "admin_notification_campaign_delivery_counts",
+      { campaign_ids: rows.map((campaign) => campaign.id) },
+    );
+    const countsByCampaign = new Map(
+      ((deliveryCounts ?? []) as CampaignDeliveryCounts[]).map((counts) => [
+        counts.campaign_id,
+        counts,
+      ]),
+    );
+    setCampaigns(rows.map((campaign) => ({
+      ...campaign,
+      deliveryCounts: countsByCampaign.get(campaign.id),
+    })));
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    loadCampaigns();
+  const refreshDeliveries = useCallback(async () => {
+    setRefreshingDeliveries(true);
+    setDeliveryRefreshMessage(null);
+
+    const token = await getFreshAccessToken();
+    if (!token) {
+      setDeliveryRefreshMessage("No se pudieron actualizar las entregas: sesión no disponible.");
+      setRefreshingDeliveries(false);
+      await loadCampaigns();
+      return;
+    }
+
+    const { data, error } = await supabase.functions.invoke(
+      "reconcile-push-receipts",
+      {
+        body: {},
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    if (error) {
+      setDeliveryRefreshMessage(`No se pudieron consultar los receipts: ${error.message}`);
+    } else {
+      const summary = (data ?? {}) as ReceiptReconciliationSummary;
+      const candidates = summary.candidates ?? 0;
+      const ok = summary.receiptOk ?? 0;
+      const failed = summary.receiptFailed ?? 0;
+      const pending = summary.receiptsMissing ?? 0;
+      setDeliveryRefreshMessage(
+        candidates === 0
+          ? "No había entregas pendientes de confirmar."
+          : `Receipts consultados: ${candidates}; ${ok} confirmados, ${failed} fallidos y ${pending} aún pendientes.`,
+      );
+    }
+
+    await loadCampaigns();
+    setRefreshingDeliveries(false);
   }, [loadCampaigns]);
+
+  useEffect(() => {
+    if (reconciledOnEntry.current) return;
+    reconciledOnEntry.current = true;
+    void refreshDeliveries();
+  }, [refreshDeliveries]);
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-3xl mx-auto px-6 py-8 flex flex-col gap-6">
+      <div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8">
         <div>
           <h1 className="text-xl font-bold text-stone-900">Notificaciones</h1>
-          <p className="mt-0.5 text-sm text-stone-500">Campañas de push con deep-link a un destino de la app.</p>
+          <p className="mt-0.5 text-sm text-stone-500">Campañas push informativas o con destino dentro de la app.</p>
         </div>
 
         <CampaignForm onCreated={loadCampaigns} />
 
         <div className="flex flex-col gap-3">
-          <h2 className="text-base font-semibold text-stone-900">Historial</h2>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-stone-900">Historial</h2>
+              <p className="mt-0.5 text-xs text-stone-500">
+                Se consulta a Expo una vez al entrar. Puede tardar hasta 15 minutos en publicar receipts.
+              </p>
+            </div>
+            <button
+              className="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50 disabled:opacity-60"
+              disabled={refreshingDeliveries}
+              onClick={() => void refreshDeliveries()}
+              type="button"
+            >
+              {refreshingDeliveries ? "Actualizando..." : "Actualizar entregas"}
+            </button>
+          </div>
+          {deliveryRefreshMessage ? (
+            <p className="text-xs text-stone-500">{deliveryRefreshMessage}</p>
+          ) : null}
           <CampaignsList campaigns={campaigns} loading={loading} />
         </div>
       </div>
