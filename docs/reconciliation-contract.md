@@ -1,6 +1,7 @@
 # Contrato de la comparación básica de beneficios
 
-Owner: `patoapp-scrapers`, migración `20261001000001_basic_benefit_reconciliation.sql`.
+Owner: `patoapp-scrapers`, migraciones `20261001000001_basic_benefit_reconciliation.sql`
+y `20261001000002_reuse_operational_reconciliation.sql`.
 Consumer: esta página `/salud-beneficios`. Las funciones son RPC de lectura con
 verificación de administrador en el servidor; no hay acciones de reparación.
 
@@ -75,3 +76,23 @@ Si falla una RPC, mostrar error y permitir reintento; no presentar datos previos
 como una comparación exitosa. No hay bypass de permisos ni operaciones en lote.
 Una reparación se investiga fuera de esta pantalla con IDs de observación, raw,
 beneficio y corridas; el prompt copiable conserva este alcance.
+
+## Presupuesto de consultas y rollout verificado
+
+Las dos RPC admin tienen un presupuesto específico de 60 segundos y work_mem
+32 MB. PostgREST aplica el timeout a su transacción; el límite global de 8 segundos
+para authenticated y los permisos de roles permanecen iguales. La vista interna
+service-only `benefit_scrape_reconciliation_operational` reúne la evidencia una vez;
+el cliente sigue llamando las mismas RPC y no consulta esa vista directamente.
+
+El 2026-10-01 se confirmó en producción la aplicación de ambas migraciones y sus
+settings, y el despliegue Pages del consumidor #56. El universo de referencia
+completo dio 23 filas accionables sobre 22 activos: 21 diferencias de contenido
+y dos filas por fuentes duplicadas. No hay alertas principales de cobertura de
+direcciones; el informe del owner corrigió una extracción inicial sin orden estable.
+
+La consulta SQL directa pasó de 32,9 a 25,2 segundos; sigue siendo pesada y no se
+presenta el tiempo local como tiempo de la página. El navegador disponible exigió
+login, por lo que no se afirma una prueba REST de una sesión admin real. La carga y
+manejo de errores se verificaron localmente con RPC simuladas. La auditoría completa
+vive en el owner: [validación y límites](https://github.com/matiaszenteno/patoapp-scrapers/blob/main/docs/audits/2026-10-01-basic-reconciliation-validation.md).
