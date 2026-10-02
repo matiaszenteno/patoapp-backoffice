@@ -37,3 +37,7 @@ Solo los siguientes emails tienen permisos de escritura (definido en la función
 - cristobal.a.garridov@gmail.com
 
 Para agregar un nuevo desarrollador: actualizar el array en la función SQL y en la migración `supabase/migrations/20260519000001_backoffice_rls.sql`.
+
+## Contratos de operación
+
+- [Comparación básica de beneficios](docs/reconciliation-contract.md): alcance, evidencia, denominadores y filtros del backoffice.

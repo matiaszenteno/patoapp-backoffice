@@ -12,6 +12,7 @@ import {
   getPublicationStateExplanation,
   getRowExplanation,
   humanizeReconciliationField,
+  humanizeAddressProcessingState,
 } from "../src/lib/reconciliationPresentation.ts";
 
 const summary: RawFidelitySummary = {
@@ -93,7 +94,7 @@ test("responde la pregunta central en lenguaje directo", () => {
     published_gaps: 0,
     verdicts: { ok: 90 },
   }).tone, "healthy");
-  assert.equal(getOverviewAnswer({ ...summary, fidelity_comparable: 0 }).tone, "waiting");
+  assert.equal(getOverviewAnswer({ ...summary, fidelity_comparable: 0 }).tone, "attention");
   assert.match(getOverviewAnswer({
     ...summary,
     reconciliation_issues: 0,
@@ -111,7 +112,7 @@ test("explica por qué el total de alertas puede superar la resta del porcentaje
   });
 
   assert.match(answer.description, /12 presentan una diferencia dentro de esa comparación/);
-  assert.match(answer.description, /3 casos no entran en el porcentaje porque falta el hallazgo del scraper o la publicación activa/);
+  assert.match(answer.description, /3 casos no entran en la comparación de contenido porque falta el hallazgo del scraper o la publicación activa/);
 });
 
 test("agrupa los códigos internos en causas entendibles", () => {
@@ -233,4 +234,38 @@ test("prefiere los nombres canónicos cuando el consumidor lee la vista", () => 
   assert.equal(getHealthIssue(directViewRow), true);
   assert.equal(getAddressProcessingMatch(directViewRow), false);
   assert.deepEqual(getMissingProcessedAddresses(directViewRow), ["Calle Canónica 456"]);
+});
+
+
+test("una versión en revisión no oculta una publicación activa ni muestra enums", () => {
+  const explanation = getRowExplanation({ ...row, verdict: "in_review", publication_explanation: "in_review", publication_state: "needs_review", has_active_publication: true });
+  assert.match(explanation.description, /Sigue existiendo una publicación activa/);
+  assert.doesNotMatch(explanation.description, /in_review|no aparece en el catálogo/);
+  assert.equal(explanation.tone, "neutral");
+});
+
+test("una extracción pendiente no inventa cero direcciones", () => {
+  const explanation = getRowExplanation({ ...row, verdict: "location_processing_gap", address_processing_status: "extraction_missing", address_expected_count: 0, address_processed_count: 0 });
+  assert.match(explanation.description, /falta un resultado vigente/);
+  assert.doesNotMatch(explanation.description, /0 direcciones/);
+});
+
+test("las publicaciones faltantes son visibles aun sin contenido comparable", () => {
+  const answer = getOverviewAnswer({ ...summary, fidelity_comparable: 0, fidelity_matches: 0, reconciliation_issues: 2, published_gaps: 0, verdicts: { missing_published: 2 } });
+  assert.equal(answer.tone, "attention");
+  assert.match(answer.title, /2 diferencias/);
+  assert.match(answer.description, /reducen la salud/);
+});
+
+test("una corrida fallida congelada sirve y los subbeneficios tienen etiqueta", () => {
+  const explanation = getRowExplanation({ ...row, verdict: "no_completed_run" });
+  assert.match(explanation.cause, /fallida sí puede servir/);
+  assert.equal(humanizeReconciliationField("offers"), "Subofertas y condiciones");
+});
+
+
+test("el estado de direcciones se muestra en lenguaje de operación", () => {
+  assert.equal(humanizeAddressProcessingState("extraction_missing"), "Extracción desde texto pendiente");
+  assert.equal(humanizeAddressProcessingState("structured_missing_publication"), "Faltan vínculos de direcciones de fuente");
+  assert.equal(humanizeAddressProcessingState("new_state"), "Estado de direcciones sin explicación disponible");
 });
