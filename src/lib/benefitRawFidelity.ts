@@ -61,6 +61,14 @@ export type RawFidelitySummary = {
   healthy: number;
   issues: number;
   health_percentage: number;
+  missing_publications?: number;
+  health_checked_total?: number;
+  health_issues?: number;
+  raw_in_review?: number;
+  raw_intentionally_ignored?: number;
+  raw_failed?: number;
+  raw_pending?: number;
+  raw_unexplained?: number;
   present_in_last_run: number;
   raw_matches: number;
   address_matches: number;
@@ -149,9 +157,11 @@ export function buildRawFidelityInvestigationPrompt({
   const percentage = stats.fidelityPercentage === null ? "sin evidencia comparable" : `${stats.fidelityPercentage}%`;
   return `Investiga las divergencias de fidelidad raw detectadas por benefit_scrape_reconciliation en Patoapp y arma un plan concreto para resolver o explicar cada una.
 
-Contrato: la vista reconcilia en ambos sentidos todos los raws observados en la última corrida exitosa con evidencia congelada y todos los beneficios activos. in_review e intentionally_ignored son estados neutrales; pipeline_failed, pipeline_pending, unexplained_not_published y location_processing_gap son accionables. Se mantienen los veredictos legacy not_published y location_drift. La fidelidad se compara solo para outcomes published con publicación activa, usando los campos directos normalizados del scraper: title, description_raw, source_url, image_url, starts_at, ends_at, channel, category_slug, value_type, value, redemption_method, redemption_details y direcciones estructuradas. Direcciones adicionales y cambios de presentación son neutrales cuando las identidades esperadas están procesadas. Si las direcciones solo se derivan desde texto, address_match es no evaluable. Reglas, IA, embeddings y drafts quedan fuera. Hoy no existe un override manual auditable del address: no asumas que un cambio sin procedencia fue manual.
+Contrato: la RPC usa benefit_scrape_reconciliation_health y compara todos los raws observados en la última corrida con evidencia congelada contra todos los beneficios activos. La comparación básica también revisa publicaciones activas cuya nueva versión quedó en revisión o ignorada; esas explicaciones nunca ocultan drift, duplicados o direcciones faltantes. Campos directos: title, description_raw, source_url, starts_at, ends_at, channel, value_type, value, redemption_method, redemption_details y offers (identidad source_id y condiciones, ignorando orden y aliases permitidos). Imágenes y categorías pueden cambiar durante el pipeline y no se comparan. Reglas inferidas, IA y embeddings quedan fuera: un resultado ok no certifica toda la semántica del beneficio. Direcciones: identidad estructurada y linaje durable del resolver; extras y formato visible no son gaps. Cuando la fuente exige extracción desde texto, debe existir un resultado válido y vigente, incluso si no encuentra direcciones. Los drafts y caches sólo explican procesamiento si su hash y linaje corresponden a esta observación. Nunca aceptes evidencia de otra corrida ni overrides manuales sin procedencia.
 
-Semántica temporal: la corrida de referencia es la última corrida succeeded o succeeded_with_errors que tiene evidencia congelada. issuer_last_scrape_* describe solo el último intento terminado y puede corresponder a un intento fallido posterior; no lo uses como corrida de referencia. reference_observation_run_id identifica la referencia solo cuando el beneficio estuvo presente en ella.
+Semántica temporal: la referencia es la última corrida scrape con reconciliation_frozen_at, independientemente de si terminó succeeded, succeeded_with_errors o failed. issuer_last_scrape_* describe el último intento terminado y puede diferir de la referencia. reference_observation_run_id identifica la referencia de la fila observada. No presupongas que una corrida fallida carece de evidencia congelada.
+
+Conteos: total/healthy/issues cuentan beneficios activos únicos; health_checked_total y health_issues agregan las publicaciones faltantes. health_percentage usa ese universo ampliado. fidelity_comparable/fidelity_matches cuentan filas comparables: varias fuentes pueden apuntar a un beneficio. raw_not_published cuenta versiones observadas cuyo outcome no fue published; no implica ausencia de una versión activa. reconciliation_issues cuenta filas accionables. No confundas esos denominadores.
 
 Contexto del filtro: emisor=${issuer || "todos"}; solo divergencias=${onlyIssues ? "sí" : "no"}; veredictos=${verdicts.length ? verdicts.join(", ") : "todos"}.
 Resumen: ${summary?.raw_observed ?? 0} raws observados (${summary?.raw_published ?? 0} publicados y ${summary?.raw_not_published ?? 0} no publicados); ${summary?.fidelity_matches ?? 0}/${stats.comparable} comparables sin divergencias (${percentage}); ${summary?.reconciliation_issues ?? 0} alertas; ${stats.waitingForReference} filas sin corrida de referencia.
@@ -159,15 +169,15 @@ Resumen: ${summary?.raw_observed ?? 0} raws observados (${summary?.raw_published
 Casos visibles:
 ${examples}
 
-1. Para no_completed_run, busca la última corrida exitosa con reconciliation_frozen_at; no confundas esa referencia con el último intento terminado.
-2. Para in_review e intentionally_ignored, úsalo solo como contexto neutral. Para pipeline_failed, pipeline_pending y unexplained_not_published, investiga la etapa y evidencia faltante.
+1. Para no_completed_run, busca la última corrida scrape con reconciliation_frozen_at, incluso failed; no confundas esa referencia con el último intento terminado.
+2. Para in_review e intentionally_ignored, úsalo como contexto neutral sólo después de comprobar que no hay alerta estructural y comprueba si permanece una publicación activa. Para pipeline_failed, pipeline_pending y unexplained_not_published, investiga la etapa y evidencia faltante.
 3. Para missing_published, confirma por qué un outcome published ya no tiene una publicación activa.
 4. Para raw_missing o absent_from_last_run, identifica la corrida de referencia del emisor y explica por qué el beneficio no quedó observado allí.
 5. Para raw_drift, traza raw_evidence normalizada contra benefits en los campos listados. Distingue defecto, corrección humana intencional y falso positivo.
 6. Si stale_redemption_keys tiene valores, confirma que el valor publicado coincide con el último valor scraper conocido y que la clave ya no viene en el raw actual.
 7. Para location_merchant_mismatch, comprueba que cada benefit_location pertenezca al merchant_id del beneficio; un source_reference correcto no compensa un vínculo cruzado.
-8. Para location_drift o location_processing_gap, compara las identidades de las direcciones estructuradas del raw congelado contra las benefit_locations activas y muestra missing_processed_addresses. Direcciones adicionales o texto reformateado no son gaps por sí mismos. Si la extracción era solo desde texto, no interpretes address_match nulo como divergencia.
-9. Para address_presentation_drift, conserva source_reference como identidad y explica por qué cambió el address visible. google_enriched es neutral; unexplained_change e invalid_source_reference requieren investigación. No clasifiques un cambio como manual mientras no exista provenance auditable.
+8. Para location_drift o location_processing_gap, compara las identidades de las direcciones estructuradas del raw congelado contra las benefit_locations activas y muestra missing_processed_addresses. Direcciones adicionales o texto reformateado no son gaps por sí mismos. Si address_processing_status=extraction_missing, falta ejecutar una extracción vigente; no lo presentes como cero direcciones ni como no evaluable.
+9. Para address_presentation_drift, conserva source_reference como identidad y explica por qué cambió el address visible. Es evidencia forense; la salud básica se basa en procesamiento y linaje, no en igualdad literal del texto. No clasifiques un cambio como manual mientras no exista provenance auditable.
 10. Para duplicate_source_urls, lista las observaciones del beneficio dentro de la corrida de referencia y muestra todas sus source_url.
 11. Agrupa por causa raíz, cuantifica impacto y propone validaciones y criterios verificables de cierre. No ejecutes acciones mutantes sin confirmar primero el alcance.`;
 }

@@ -16,7 +16,7 @@ export type Explanation = {
   tone: ReconciliationTone;
 };
 
-export type IssueGroupKey = "content" | "coverage" | "locations" | "duplicates" | "waiting";
+export type IssueGroupKey = "content" | "coverage" | "locations" | "duplicates" | "pipeline" | "waiting";
 
 export type IssueGroup = {
   count: number;
@@ -62,6 +62,20 @@ const NEW_PUBLICATION_EXPLANATIONS: Record<string, { description: string; label:
   unexplained_not_published: { label: "No publicado sin explicación", description: "El hallazgo no está publicado y tampoco tiene evidencia suficiente de por qué." },
 };
 
+export function humanizeAddressProcessingState(state: string | null | undefined): string {
+  const labels: Record<string, string> = {
+    not_requested: "La fuente no solicita direcciones",
+    not_comparable: "Sin publicación comparable",
+    extraction_missing: "Extracción desde texto pendiente",
+    extraction_published: "Direcciones extraídas y vinculadas",
+    structured_published: "Direcciones de fuente vinculadas",
+    extraction_missing_publication: "Faltan vínculos de direcciones extraídas",
+    structured_missing_publication: "Faltan vínculos de direcciones de fuente",
+    extraction_processed_no_address: "Extracción completa, sin direcciones",
+  };
+  return labels[state ?? ""] ?? "Estado de direcciones sin explicación disponible";
+}
+
 const FIELD_LABELS: Record<string, string> = {
   category_slug: "Categoría",
   channel: "Dónde se puede usar",
@@ -69,6 +83,7 @@ const FIELD_LABELS: Record<string, string> = {
   description_raw: "Descripción y condiciones",
   ends_at: "Fecha de término",
   image_url: "Imagen",
+  offers: "Subofertas y condiciones",
   instructions: "Instrucciones",
   merchant_addresses: "Direcciones",
   merchant_location_candidates: "Direcciones",
@@ -97,11 +112,11 @@ export function getOverviewAnswer(summary: RawFidelitySummary | null): OverviewA
   }
 
   const waiting = summary.verdicts.no_completed_run ?? 0;
-  if (summary.fidelity_comparable === 0) {
+  if (summary.fidelity_comparable === 0 && summary.reconciliation_issues === 0 && summary.published_gaps === 0) {
     return {
       title: "Todavía no hay evidencia suficiente para responder",
       description: waiting > 0
-        ? `${waiting} ${waiting === 1 ? "caso necesita" : "casos necesitan"} una corrida exitosa antes de poder comparar.`
+        ? `${waiting} ${waiting === 1 ? "caso necesita" : "casos necesitan"} una corrida con evidencia congelada antes de poder comparar.`
         : "No hay publicaciones con evidencia comparable en el alcance seleccionado.",
       tone: "waiting",
     };
@@ -117,8 +132,8 @@ export function getOverviewAnswer(summary: RawFidelitySummary | null): OverviewA
 
   if (summary.reconciliation_issues === 0 && summary.published_gaps === 0) {
     return {
-      title: "Sí: lo publicado coincide con la última corrida válida",
-      description: `${summary.fidelity_matches} ${summary.fidelity_matches === 1 ? "publicación que se puede comparar conserva" : "publicaciones que se pueden comparar conservan"} la información entregada por el scraper.`,
+      title: "La comparación básica no detectó diferencias",
+      description: `${summary.fidelity_matches} ${summary.fidelity_matches === 1 ? "publicación que se puede comparar conserva" : "publicaciones que se pueden comparar conservan"} los datos directos comparados del scraper. Imágenes, categorías y reglas inferidas quedan fuera de este control.`,
       tone: "healthy",
     };
   }
@@ -132,7 +147,7 @@ export function getOverviewAnswer(summary: RawFidelitySummary | null): OverviewA
       ? `${comparableDifferences} ${comparableDifferences === 1 ? "presenta" : "presentan"} una diferencia dentro de esa comparación`
       : null,
     differencesWithoutTwoSides > 0
-      ? `${differencesWithoutTwoSides} ${differencesWithoutTwoSides === 1 ? "caso no entra" : "casos no entran"} en el porcentaje porque falta el hallazgo del scraper o la publicación activa`
+      ? `${differencesWithoutTwoSides} ${differencesWithoutTwoSides === 1 ? "caso no entra" : "casos no entran"} en la comparación de contenido porque falta el hallazgo del scraper o la publicación activa; las publicaciones faltantes sí reducen la salud del catálogo`
       : null,
   ].filter(Boolean).join("; ");
   return {
@@ -166,7 +181,7 @@ export function getIssueGroups(summary: RawFidelitySummary | null): IssueGroup[]
     {
       key: "locations",
       title: "Las direcciones no se explican",
-      description: "Falta o sobra una dirección, pertenece a otro comercio o el texto visible cambió sin una procedencia registrada.",
+      description: "Falta procesamiento de direcciones esperadas o un vínculo corresponde a otro comercio. El formato visible y las direcciones adicionales no generan alertas por sí solos.",
       tone: "attention",
       verdicts: ["location_merchant_mismatch", "location_drift", "address_presentation_drift", "location_processing_gap"],
     },
@@ -178,9 +193,16 @@ export function getIssueGroups(summary: RawFidelitySummary | null): IssueGroup[]
       verdicts: ["duplicate_source_urls"],
     },
     {
+      key: "pipeline",
+      title: "El procesamiento no terminó",
+      description: "La versión observada falló, sigue pendiente o no tiene una explicación durable.",
+      tone: "attention",
+      verdicts: ["pipeline_failed", "pipeline_pending", "unexplained_not_published"],
+    },
+    {
       key: "waiting",
       title: "Aún no se puede comparar",
-      description: "El emisor todavía no tiene una corrida exitosa con evidencia guardada para usar como referencia.",
+      description: "El emisor todavía no tiene una corrida con evidencia congelada para usar como referencia.",
       tone: "waiting",
       verdicts: ["no_completed_run"],
     },
@@ -224,13 +246,16 @@ export function getRowExplanation(row: RawFidelityRow): Explanation {
   const missingFields = row.published_gap_fields?.map(humanizeReconciliationField) ?? [];
   const state = getPublicationStateExplanation(row.publication_state ?? row.draft_status ?? row.raw_status);
   const verdict = getHealthVerdict(row);
-  const publicationExplanation = row.publication_explanation?.trim();
+  const explanationCode = row.publication_explanation?.trim();
+  const publicationExplanation = explanationCode && (NEW_PUBLICATION_EXPLANATIONS[explanationCode] || PUBLICATION_STATE_EXPLANATIONS[explanationCode])
+    ? getPublicationStateExplanation(explanationCode).description
+    : explanationCode;
 
   switch (verdict) {
     case "ok":
       return {
         label: "Coincide con el scraper",
-        description: "La publicación activa conserva la información y las direcciones observadas en la última corrida válida.",
+        description: "La comparación básica de datos directos y procesamiento de direcciones no detectó diferencias. Imágenes, categorías y reglas inferidas quedan fuera.",
         cause: "No se encontraron diferencias en los datos que entrega directamente el scraper.",
         nextStep: "No requiere acción.",
         tone: "healthy",
@@ -240,7 +265,7 @@ export function getRowExplanation(row: RawFidelityRow): Explanation {
     case "intentionally_ignored":
       return {
         label: state.label,
-        description: `${publicationExplanation ?? state.description} Por eso no aparece en el catálogo publicado.`,
+        description: `${publicationExplanation ?? state.description} ${row.has_active_publication ? "Sigue existiendo una publicación activa; esta explicación corresponde a la versión observada y no oculta diferencias de esa publicación." : "No hay una publicación activa correspondiente."}`,
         cause: "El hallazgo está contabilizado y tiene una explicación neutral; no es una diferencia entre el scraper y una publicación.",
         nextStep: verdict === "in_review" || row.publication_state === "needs_review"
           ? "Revisar la tarea pendiente si se quiere decidir su publicación."
@@ -275,8 +300,10 @@ export function getRowExplanation(row: RawFidelityRow): Explanation {
       const missingProcessedAddresses = getMissingProcessedAddresses(row);
       return {
         label: "Faltan direcciones procesadas",
-        description: `${missingProcessedAddresses.length || Math.max(0, (row.address_expected_count ?? row.raw_address_count ?? 0) - (row.address_processed_count ?? row.published_address_count ?? 0))} ${missingProcessedAddresses.length === 1 ? "dirección esperada no fue" : "direcciones esperadas no fueron"} procesada${missingProcessedAddresses.length === 1 ? "" : "s"}.`,
-        cause: row.address_processing_status ? `Estado del procesamiento: ${row.address_processing_status}.` : "La publicación no conserva cobertura procesada para todas las direcciones esperadas.",
+        description: row.address_processing_status === "extraction_missing"
+          ? "La fuente requiere extraer direcciones desde texto, pero falta un resultado vigente. Aún no se conoce cuántas direcciones corresponden."
+          : `${missingProcessedAddresses.length || Math.max(0, (row.address_expected_count ?? row.raw_address_count ?? 0) - (row.address_processed_count ?? row.published_address_count ?? 0))} ${missingProcessedAddresses.length === 1 ? "dirección esperada no fue" : "direcciones esperadas no fueron"} procesada${missingProcessedAddresses.length === 1 ? "" : "s"}.`,
+        cause: row.address_processing_status ? `${humanizeAddressProcessingState(row.address_processing_status)}.` : "La publicación no conserva cobertura procesada para todas las direcciones esperadas.",
         nextStep: "Revisar las direcciones faltantes y el estado de procesamiento del comercio.",
         tone: "attention",
       };
@@ -351,9 +378,9 @@ export function getRowExplanation(row: RawFidelityRow): Explanation {
     case "no_completed_run":
       return {
         label: "Todavía no existe una corrida válida para comparar",
-        description: "Este emisor aún no tiene una corrida exitosa con evidencia guardada después de habilitar esta medición.",
-        cause: "Un intento fallido o incompleto no se usa como referencia porque podría producir diferencias falsas.",
-        nextStep: "Esperar una corrida exitosa; este caso no reduce el porcentaje mientras tanto.",
+        description: "Este emisor aún no tiene una corrida con evidencia congelada después de habilitar esta medición.",
+        cause: "Falta evidencia congelada para este emisor. Una corrida fallida sí puede servir de referencia si sus observaciones quedaron congeladas.",
+        nextStep: "Revisar la captura y congelamiento de la corrida; este caso queda fuera de la fidelidad de contenido, pero reduce la salud del catálogo.",
         tone: "waiting",
       };
     default:

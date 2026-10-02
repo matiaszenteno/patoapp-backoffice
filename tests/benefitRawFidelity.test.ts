@@ -109,6 +109,16 @@ test("el prompt distingue la referencia del último intento y entrega IDs establ
   assert.match(prompt, /stale_redemption_keys=code/);
   assert.match(prompt, /location_merchant_match=false/);
   assert.match(prompt, /address_presentation_status=unexplained_change/);
-  assert.match(prompt, /última corrida succeeded o succeeded_with_errors/);
-  assert.match(prompt, /no existe un override manual auditable/);
+  assert.match(prompt, /última corrida scrape con reconciliation_frozen_at/);
+  assert.match(prompt, /overrides manuales sin procedencia/);
+});
+
+
+test("el contrato incluye activos en revisión, subofertas y denominadores separados", () => {
+  const prompt = buildRawFidelityInvestigationPrompt({ issuer: "", onlyIssues: true, rows: [row], summary, verdicts: [] });
+  assert.match(prompt, /publicaciones activas cuya nueva versión quedó en revisión/);
+  assert.match(prompt, /offers \(identidad source_id/);
+  assert.match(prompt, /Imágenes y categorías.*no se comparan/);
+  assert.match(prompt, /health_checked_total y health_issues agregan las publicaciones faltantes/);
+  assert.match(prompt, /No presupongas que una corrida fallida carece/);
 });

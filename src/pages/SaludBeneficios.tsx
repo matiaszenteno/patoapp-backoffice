@@ -17,6 +17,7 @@ import {
   getPublicationStateExplanation,
   getRowExplanation,
   humanizeReconciliationField,
+  humanizeAddressProcessingState,
   type IssueGroupKey,
   type ReconciliationTone,
 } from "../lib/reconciliationPresentation";
@@ -215,7 +216,7 @@ function Detail({ onClose, row }: { onClose: () => void; row: RawFidelityRow }) 
             <section className={`rounded-lg border p-4 text-sm ${addressProcessingMatch === false ? "border-red-200 bg-red-50 text-red-900" : "border-stone-200 bg-white text-stone-700"}`}>
               <p className="font-medium">Estado del procesamiento de direcciones</p>
               <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                <div><p className="text-xs text-stone-400">Estado</p><p className="mt-1">{row.address_processing_status ?? "Sin información"}</p></div>
+                <div><p className="text-xs text-stone-400">Estado</p><p className="mt-1">{humanizeAddressProcessingState(row.address_processing_status)}</p></div>
                 <div><p className="text-xs text-stone-400">Esperadas / procesadas</p><p className="mt-1">{row.address_expected_count ?? "—"} / {row.address_processed_count ?? "—"}</p></div>
                 <div><p className="text-xs text-stone-400">Extracción</p><p className="mt-1">{row.address_extraction_processed === false ? "No procesada" : row.address_extraction_confidence !== null && row.address_extraction_confidence !== undefined ? `Confianza ${Math.round(row.address_extraction_confidence * 100)}%` : "Estructurada o sin dato"}</p></div>
               </div>
@@ -347,7 +348,7 @@ function Overview({ issuerName, summary }: { issuerName: string; summary: RawFid
           <h2 className={`mt-3 text-xl font-semibold sm:text-2xl ${TONE_STYLES[answer.tone].text}`}>{answer.title}</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-700">{answer.description}</p>
           <p className="mt-3 text-xs leading-5 text-stone-500">
-            La comparación usa la última corrida que terminó correctamente. Un intento fallido posterior se muestra como contexto, pero no reemplaza esa referencia.
+            La comparación usa la última corrida con evidencia congelada, incluso si terminó con fallos. El último intento terminado se muestra como contexto aparte.
           </p>
         </div>
         <div className="min-w-48 rounded-lg border border-white/70 bg-white/80 px-5 py-4">
@@ -396,7 +397,7 @@ function ReconciliationFlow({ summary }: { summary: RawFidelitySummary | null })
           </div>
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-stone-600">
             <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-stone-800" />{published} marcados como publicados</span>
-            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-400" />{notPublished} no publicados, con una razón</span>
+            <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-400" />{notPublished} versiones sin publicación confirmada</span>
           </div>
         </div>
         <div aria-hidden="true" className="hidden items-center text-xl text-stone-300 lg:flex">→</div>
@@ -428,10 +429,10 @@ function UnpublishedReasons({ summary }: { summary: RawFidelitySummary | null })
       <div className="flex items-start gap-3">
         <StatusMark tone="neutral" />
         <div>
-          <h2 className="text-base font-semibold text-sky-950">¿Por qué el scraper encontró cosas que no están publicadas?</h2>
+          <h2 className="text-base font-semibold text-sky-950">¿Qué versiones no terminaron publicadas?</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-sky-900/75">
             {summary?.raw_not_published
-              ? `${formatCount(summary.raw_not_published, "hallazgo quedó", "hallazgos quedaron")} fuera del catálogo, pero el proceso de publicación registró dónde se detuvieron. Los casos en revisión o ignorados son neutrales; fallos, pendientes y casos sin explicación requieren atención.`
+              ? `${formatCount(summary.raw_not_published, "hallazgo quedó", "hallazgos quedaron")} sin publicación confirmada en la corrida. Puede seguir activa una versión anterior. Los casos en revisión o ignorados son neutrales; fallos, pendientes y casos sin explicación requieren atención.`
               : "Todo lo que encontró el scraper terminó marcado como publicado; no hay hallazgos detenidos en el proceso."}
           </p>
         </div>
@@ -456,7 +457,7 @@ function UnpublishedReasons({ summary }: { summary: RawFidelitySummary | null })
         <div className="mt-5 rounded-lg border border-sky-200 bg-white p-4">
           <p className="text-sm font-medium text-stone-900">Estado de direcciones</p>
           <div className="mt-3 flex flex-wrap gap-3 text-xs text-stone-600">
-            {Object.entries(summary?.address_states ?? summary?.address_processing_states ?? {}).map(([state, count]) => <span className="rounded-full bg-stone-100 px-3 py-1.5" key={state}>{state}: <strong>{count}</strong></span>)}
+            {Object.entries(summary?.address_states ?? summary?.address_processing_states ?? {}).map(([state, count]) => <span className="rounded-full bg-stone-100 px-3 py-1.5" key={state}>{humanizeAddressProcessingState(state)}: <strong>{count}</strong></span>)}
           </div>
         </div>
       ) : null}
@@ -476,6 +477,7 @@ function DifferenceGroups({
   const groups = getIssueGroups(summary);
   const actionable = groups.filter((group) => group.key !== "waiting");
   const waiting = groups.find((group) => group.key === "waiting");
+  const noComparableEvidence = (summary?.fidelity_comparable ?? 0) === 0;
   const hasIssues = (summary?.reconciliation_issues ?? 0) > 0 || (summary?.published_gaps ?? 0) > 0;
 
   return (
@@ -516,11 +518,11 @@ function DifferenceGroups({
           })}
         </div>
       ) : (
-        <div className="mt-4 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-5">
-          <StatusMark tone="healthy" />
+        <div className={`mt-4 flex items-start gap-3 rounded-xl border p-5 ${noComparableEvidence ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
+          <StatusMark tone={noComparableEvidence ? "waiting" : "healthy"} />
           <div>
-            <p className="font-medium text-emerald-900">No hay diferencias que investigar en este alcance</p>
-            <p className="mt-1 text-sm text-emerald-800">Las publicaciones comparables conservan la información entregada por el scraper.</p>
+            <p className={`font-medium ${noComparableEvidence ? "text-amber-900" : "text-emerald-900"}`}>{noComparableEvidence ? "Todavía falta evidencia comparable" : "No hay diferencias que investigar en este alcance"}</p>
+            <p className={`mt-1 text-sm ${noComparableEvidence ? "text-amber-800" : "text-emerald-800"}`}>{noComparableEvidence ? "No hay publicaciones con fuente comparable en este alcance. Este resultado no permite confirmar que el catálogo coincida." : "La comparación básica no encontró diferencias en los datos directos y el procesamiento de direcciones."}</p>
           </div>
         </div>
       )}
@@ -530,7 +532,7 @@ function DifferenceGroups({
           <StatusMark tone="waiting" />
           <div className="flex-1">
             <p className="text-sm font-medium text-amber-900">{formatCount(waiting.count, "caso aún no se puede comparar", "casos aún no se pueden comparar")}</p>
-            <p className="mt-1 text-xs leading-5 text-amber-800">{waiting.description} No se cuentan como diferencias ni reducen el porcentaje.</p>
+            <p className="mt-1 text-xs leading-5 text-amber-800">{waiting.description} Quedan fuera de la fidelidad de contenido, pero reducen la salud del catálogo.</p>
           </div>
           <span className="text-xs font-medium text-amber-900">{activeGroup === "waiting" ? "Mostrando" : "Ver casos"}</span>
         </button>
@@ -559,7 +561,7 @@ export function SaludBeneficios() {
       const group = getIssueGroups(null).find((item) => item.key === activeGroup);
       return { onlyIssues: false, verdicts: group?.verdicts ?? [] };
     }
-    if (viewMode === "explained") return { onlyIssues: false, verdicts: ["not_published"] };
+    if (viewMode === "explained") return { onlyIssues: false, verdicts: ["in_review", "intentionally_ignored", "not_published"] };
     if (viewMode === "all") return { onlyIssues: false, verdicts: [] as string[] };
     return { onlyIssues: true, verdicts: [] as string[] };
   }, [activeGroup, viewMode]);
@@ -581,6 +583,9 @@ export function SaludBeneficios() {
     ]);
     if (currentRequest !== requestId.current) return;
     if (pageRes.error || summaryRes.error) {
+      setPage(null);
+      setSummary(null);
+      setSelected(null);
       setError(pageRes.error?.message ?? summaryRes.error?.message ?? "No se pudo comparar el catálogo con el scraper.");
     } else {
       setPage(pageRes.data as Page);
@@ -702,7 +707,7 @@ export function SaludBeneficios() {
           <div className="flex flex-wrap gap-2" role="group" aria-label="Qué casos mostrar">
             {([
               ["attention", `Requieren atención (${summary?.reconciliation_issues ?? 0})`],
-              ["explained", `No publicados, pero explicados (${summary?.raw_not_published ?? 0})`],
+              ["explained", `Versiones en revisión o ignoradas (${(summary?.verdicts.in_review ?? 0) + (summary?.verdicts.intentionally_ignored ?? 0) + (summary?.verdicts.not_published ?? 0)})`],
               ["all", "Ver todo"],
             ] as Array<[ViewMode, string]>).map(([mode, label]) => {
               const selectedMode = !activeGroup && viewMode === mode;
@@ -790,9 +795,9 @@ export function SaludBeneficios() {
               <details>
                 <summary className="cursor-pointer text-sm font-medium text-stone-700">¿Qué significa “última corrida válida”?</summary>
                 <div className="mt-3 max-w-4xl space-y-2 text-sm leading-6 text-stone-600">
-                  <p>Es la última ejecución del scraper que terminó correctamente —aunque haya terminado con algunos errores aislados— y guardó una copia estable de lo que encontró.</p>
-                  <p>Si hubo un intento fallido después, se informa dentro de cada caso, pero no se usa para comparar: una ejecución incompleta podría hacer parecer que faltan beneficios que en realidad nunca alcanzó a revisar.</p>
-                  <p>La comparación sólo considera datos que vienen directamente del scraper. Descripciones creadas con IA, reglas internas y otros enriquecimientos no se tratan como diferencias.</p>
+                  <p>Es la última ejecución scrape con observaciones y resultados congelados. Puede haber terminado correctamente, con errores o con estado fallido.</p>
+                  <p>El último intento terminado se informa aparte. Reemplaza la referencia sólo cuando tiene evidencia congelada; un estado fallido por sí solo no lo excluye.</p>
+                  <p>La comparación sólo considera datos que vienen directamente del scraper. Incluye subofertas y condiciones. Imágenes, categorías, descripciones creadas con IA y reglas inferidas no se tratan como diferencias. Pasar este control no certifica toda la semántica ni la vigencia actual.</p>
                 </div>
               </details>
             </section>
