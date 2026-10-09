@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { supabase } from "../lib/supabase";
 import { getFreshAccessToken } from "../lib/auth";
 import { inputCls, selectCls } from "../lib/styles";
+import { PersonalizedNotifications } from "../components/notifications/PersonalizedNotifications";
 import {
   acceptedByExpo,
   acceptedByProvider,
@@ -645,6 +646,7 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
 // ---------- Página ----------
 
 export function Notificaciones() {
+  const [mode, setMode] = useState<"campaign" | "personalized">("campaign");
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshingDeliveries, setRefreshingDeliveries] = useState(false);
@@ -731,12 +733,34 @@ export function Notificaciones() {
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8">
         <div>
           <h1 className="text-xl font-bold text-stone-900">Notificaciones</h1>
-          <p className="mt-0.5 text-sm text-stone-500">Campañas push informativas o con destino dentro de la app.</p>
+          <p className="mt-0.5 text-sm text-stone-500">
+            Campañas con el mismo texto para todos, o personalizadas con un beneficio distinto para cada persona.
+          </p>
         </div>
 
-        <CampaignForm onCreated={loadCampaigns} />
+        <div className="flex gap-1 border-b border-stone-200">
+          {([
+            { value: "campaign", label: "Campaña manual" },
+            { value: "personalized", label: "Personalizada" },
+          ] as const).map((tab) => (
+            <button
+              className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${
+                mode === tab.value ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-800"
+              }`}
+              key={tab.value}
+              onClick={() => setMode(tab.value)}
+              type="button"
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
-        <div className="flex flex-col gap-3">
+        {mode === "personalized" ? <PersonalizedNotifications /> : null}
+
+        {mode === "campaign" ? <CampaignForm onCreated={loadCampaigns} /> : null}
+
+        <div className={`flex flex-col gap-3 ${mode === "campaign" ? "" : "hidden"}`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-base font-semibold text-stone-900">Historial</h2>

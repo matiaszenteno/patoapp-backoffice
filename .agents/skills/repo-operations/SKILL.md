@@ -50,7 +50,8 @@ src/
 
 Las EFs que invoca este backoffice viven en `patoapp-scrapers/supabase/functions/`:
 `run-reprocess`, `trigger-scraper`, `run-refresh-ai-descriptions`, `manage-benefit`,
-`refresh-merchant-locations`.
+`refresh-merchant-locations` y `personalized-notifications` (vista previa y envío de
+notificaciones personalizadas; contrato en `patoapp-scrapers/docs/notification-personalization.md`).
 
 Patrón de invocación:
 

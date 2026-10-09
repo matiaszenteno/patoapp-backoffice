@@ -27,6 +27,7 @@ Loguearse con el email de desarrollador (el acceso de escritura está protegido 
 - **Beneficios**: buscar, editar, crear manualmente y eliminar beneficios
 - **Ubicaciones**: editar dirección, nombre de local y coordenadas (con mapa arrastrable) de los merchants
 - **Pipeline**: publicar beneficios pendientes, regenerar descripciones IA y actualizar ubicaciones scrapeadas
+- **Notificaciones**: campañas manuales con el mismo texto para todos y notificaciones personalizadas (un beneficio por persona según interés y comunas), con vista previa y confirmación de la cantidad de destinatarios antes de enviar
 
 ## Acceso autorizado
 
