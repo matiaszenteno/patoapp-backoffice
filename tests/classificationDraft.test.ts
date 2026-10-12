@@ -6,6 +6,8 @@ import {
   correctionForDraft,
   formFromDraft,
   isCorrectionStale,
+  offersFromDraft,
+  SUPPORTED_DRAFT_SCHEMA,
   type IngestionDraft,
 } from "../src/lib/classification/draft.ts";
 import { getChangedCorrectionFields } from "../src/lib/correctionReprocess.ts";
@@ -49,6 +51,28 @@ test("confirmar sin editar nada produce exactamente la resolución de la revisi�
   });
 
   assert.deepEqual(cf, { needs_review: false });
+});
+
+test("draft v1 admite offers como extensión aditiva sin convertirlos en corrección", () => {
+  const draft = makeDraft({
+    draft: {
+      ...makeDraft().draft,
+      offers: [{
+        source_id: "1447",
+        title: "30% de descuento en estadías",
+        value: 30,
+        value_type: "percentage",
+      }],
+    },
+  });
+
+  assert.equal(draft.schema_version, SUPPORTED_DRAFT_SCHEMA);
+  assert.deepEqual(offersFromDraft(draft.draft).map((offer) => offer.source_id), ["1447"]);
+
+  const vals = { ...formFromDraft(draft.draft, null, null), channel: "online" };
+  assert.deepEqual(buildCorrectionFields({ blockers: [], confirmReview: false, draft, vals }), {
+    channel: "online",
+  });
 });
 
 test("la confirmación dispara un reproceso en vez de quedar en no-op", () => {

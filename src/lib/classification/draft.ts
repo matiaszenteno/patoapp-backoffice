@@ -5,6 +5,23 @@
 
 import type { FieldProvenance } from "./vocabulary.ts";
 
+export const SUPPORTED_DRAFT_SCHEMA = "2026-07-draft-v1";
+
+export type BenefitOffer = {
+  channel: string | null;
+  description: string | null;
+  display_price: number | string | null;
+  ends_at: string | null;
+  redemption_details: Record<string, unknown>;
+  redemption_method: string | null;
+  source_id: string;
+  starts_at: string | null;
+  terms: string | null;
+  title: string;
+  value: number | string | null;
+  value_type: string | null;
+};
+
 export type FormState = {
   ai_description: string;
   br_cuotas_minimas: string;
@@ -77,6 +94,42 @@ const DURABLE_CORRECTION_FIELDS = new Set([
 
 const RULE_KEYS = ["max_cap", "frequency", "days", "min_purchase", "installments_count"];
 const REDEMPTION_KEYS = ["code", "url", "qr_url"];
+
+function optionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** Extensión aditiva de draft v1. Es solo lectura: las correcciones siguen siendo
+ *  diffs de los campos editables y nunca reemplazan el snapshot completo. */
+export function offersFromDraft(draft: Record<string, unknown>): BenefitOffer[] {
+  if (!Array.isArray(draft.offers)) return [];
+  return draft.offers.flatMap((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const offer = value as Record<string, unknown>;
+    const sourceId = optionalString(offer.source_id);
+    const title = optionalString(offer.title);
+    if (!sourceId || !title) return [];
+    const redemptionDetails = offer.redemption_details;
+    return [{
+      channel: optionalString(offer.channel),
+      description: optionalString(offer.description),
+      display_price: typeof offer.display_price === "number" || typeof offer.display_price === "string"
+        ? offer.display_price
+        : null,
+      ends_at: optionalString(offer.ends_at),
+      redemption_details: redemptionDetails && typeof redemptionDetails === "object" && !Array.isArray(redemptionDetails)
+        ? redemptionDetails as Record<string, unknown>
+        : {},
+      redemption_method: optionalString(offer.redemption_method),
+      source_id: sourceId,
+      starts_at: optionalString(offer.starts_at),
+      terms: optionalString(offer.terms),
+      title,
+      value: typeof offer.value === "number" || typeof offer.value === "string" ? offer.value : null,
+      value_type: optionalString(offer.value_type),
+    }];
+  });
+}
 
 export function serializeRedemptionDetails(
   method: string,
