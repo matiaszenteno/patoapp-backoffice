@@ -195,3 +195,74 @@ test("lee los días canónicos del draft como etiquetas del formulario", () => {
   assert.equal(vals.br_dias_mode, "specific");
   assert.deepEqual(vals.br_dias_validos, ["jueves"]);
 });
+
+test("el merchant corregido a mano viaja en la corrección", () => {
+  const draft = makeDraft({
+    draft: { ...makeDraft().draft, merchant_id: null, merchant_name: "nike store" },
+    publication_blockers: ["merchant_id_missing"],
+  });
+  const vals = formFromDraft(draft.draft, null, null);
+
+  const cf = buildCorrectionFields({
+    blockers: draft.publication_blockers ?? [],
+    confirmReview: false,
+    draft,
+    vals: { ...vals, merchant_id: "1d1f-uuid", merchant_name: "Nike" },
+  });
+
+  assert.equal(cf.merchant_id, "1d1f-uuid");
+  assert.equal(cf.merchant_name, "Nike");
+});
+
+test("el merchant sin tocar no se convierte en una corrección manual", () => {
+  const draft = makeDraft({
+    draft: { ...makeDraft().draft, merchant_id: "1d1f-uuid", merchant_name: "Nike" },
+  });
+  const vals = formFromDraft(draft.draft, null, null);
+
+  const cf = buildCorrectionFields({ blockers: [], confirmReview: false, draft, vals });
+
+  assert.ok(!("merchant_id" in cf));
+  assert.ok(!("merchant_name" in cf));
+});
+
+test("vaciar un campo que el draft traía es un override explícito a null", () => {
+  // Sin esto, borrar el valor en el formulario no guardaba nada y el operador creía que sí.
+  const draft = makeDraft({
+    draft: {
+      ...makeDraft().draft,
+      description_raw: "Texto original del emisor",
+      merchant_id: "1d1f-uuid",
+      merchant_name: "Nike",
+    },
+  });
+  const vals = formFromDraft(draft.draft, null, null);
+
+  const cf = buildCorrectionFields({
+    blockers: [],
+    confirmReview: false,
+    draft,
+    vals: { ...vals, description_raw: "", merchant_id: "", merchant_name: "" },
+  });
+
+  assert.equal(cf.merchant_id, null);
+  assert.equal(cf.merchant_name, null);
+  assert.equal(cf.description_raw, null);
+});
+
+test("un description_raw vacío se rellena desde la descripción de la app, no se anula", () => {
+  const draft = makeDraft({
+    draft: { ...makeDraft().draft, description_raw: "Texto viejo" },
+    publication_blockers: ["description_missing"],
+  });
+  const vals = formFromDraft(draft.draft, null, null);
+
+  const cf = buildCorrectionFields({
+    blockers: ["description_missing"],
+    confirmReview: false,
+    draft,
+    vals: { ...vals, ai_description: "20% en Nike los jueves", description_raw: "" },
+  });
+
+  assert.equal(cf.description_raw, "20% en Nike los jueves");
+});

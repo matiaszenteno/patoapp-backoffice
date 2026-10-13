@@ -18,6 +18,8 @@ export type FormState = {
   description_raw: string;
   ends_at: string;
   image_url: string;
+  merchant_id: string;
+  merchant_name: string;
   note: string;
   rd_code: string;
   rd_url: string;
@@ -190,6 +192,8 @@ export function formFromDraft(
     description_raw: String(values.description_raw ?? ""),
     ends_at: toDateInput(values.ends_at),
     image_url: String(values.image_url ?? ""),
+    merchant_id: String(values.merchant_id ?? ""),
+    merchant_name: String(values.merchant_name ?? ""),
     note: note ?? "",
     rd_code: rd.code,
     rd_url: rd.url,
@@ -253,6 +257,11 @@ export function buildCorrectionFields({
   const cf: Record<string, unknown> = {};
 
   if (vals.title.trim()) cf.title = vals.title.trim();
+  // El merchant es una corrección durable: identifica al comercio y sobrevive a un re-scrape.
+  // Pinear el id resuelve merchant_id_missing; corregir el nombre le da al pipeline con qué
+  // volver a resolverlo cuando el comercio todavía no existe en el catálogo.
+  if (vals.merchant_id) cf.merchant_id = vals.merchant_id;
+  if (vals.merchant_name.trim()) cf.merchant_name = vals.merchant_name.trim();
   if (vals.description_raw.trim()) cf.description_raw = vals.description_raw.trim();
   else if (vals.ai_description.trim() && blockers.includes("description_missing")) {
     cf.description_raw = vals.ai_description.trim();
@@ -312,9 +321,17 @@ export function buildCorrectionFields({
     cf.redemption_details = mergedRedemption;
   }
 
-  // Vaciar una fecha que el draft traía es un override explícito a null, no un campo ausente.
+  // Vaciar un campo que el draft traía es un override explícito a null, no un campo ausente.
+  // Sin esto, borrar el valor en el formulario no guarda nada y el operador cree que sí.
   if (!vals.starts_at && draft.draft.starts_at) cf.starts_at = null;
   if (!vals.ends_at && draft.draft.ends_at) cf.ends_at = null;
+  if (!vals.merchant_id && draft.draft.merchant_id) cf.merchant_id = null;
+  if (!vals.merchant_name.trim() && draft.draft.merchant_name) cf.merchant_name = null;
+  // `description_raw` puede haberse rellenado desde ai_description arriba (blocker
+  // description_missing); en ese caso no es un vaciado.
+  if (!vals.description_raw.trim() && !cf.description_raw && draft.draft.description_raw) {
+    cf.description_raw = null;
+  }
 
   for (const field of Object.keys(cf)) {
     if (field === "benefit_rules" || field === "redemption_details") continue;

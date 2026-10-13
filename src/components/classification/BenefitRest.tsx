@@ -13,6 +13,7 @@ import {
   VALUE_TYPE_OPTIONS,
   provenanceFor,
 } from "./BenefitFields";
+import { useMerchants } from "../../lib/useMerchants";
 import { FieldRow, ReadOnlyField } from "./FieldRow";
 
 const OPTION_LABELS: Record<string, { label: string; value: string }[]> = {
@@ -22,8 +23,10 @@ const OPTION_LABELS: Record<string, { label: string; value: string }[]> = {
   value_type: VALUE_TYPE_OPTIONS,
 };
 
-function displayValue(field: string, vals: FormState): string {
+function displayValue(field: string, vals: FormState, merchantNames: Map<string, string>): string {
   const raw = String(vals[field as keyof FormState] ?? "");
+  // Un UUID no le dice nada al operador: se muestra el nombre del merchant apuntado.
+  if (field === "merchant_id") return raw ? merchantNames.get(raw) ?? raw : "";
   const options = OPTION_LABELS[field];
   if (!options) return raw;
   return options.find((option) => option.value === raw)?.label ?? raw;
@@ -39,6 +42,8 @@ export function BenefitRest({ excluded, onChange, provenance, vals }: {
   vals: FormState;
 }) {
   const [editing, setEditing] = useState(false);
+  const { merchants } = useMerchants();
+  const merchantNames = new Map(merchants.map((merchant) => [merchant.id, merchant.name]));
   const fields = SCALAR_FIELDS.filter((field) => !excluded.includes(field));
   if (!fields.length) return null;
 
@@ -77,7 +82,7 @@ export function BenefitRest({ excluded, onChange, provenance, vals }: {
               key={field}
               label={FIELD_LABELS[field] ?? field}
               provenance={provenanceFor(provenance, field)}
-              value={displayValue(field, vals)}
+              value={displayValue(field, vals, merchantNames)}
             />
           ))}
         </div>

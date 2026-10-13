@@ -148,3 +148,52 @@ test("un blocker sin campo asociado no inventa uno", () => {
   const task = getReviewTask(["semantic_vector_missing"], null);
   assert.deepEqual(task.missingFields, []);
 });
+
+test("el merchant sin resolver no se satisface con el nombre que el pipeline ya rechazó", () => {
+  // merchant_id_missing significa que la resolución falló *con* ese nombre. Antes el blocker
+  // no mapeaba a ningún campo: el botón quedaba habilitado, el guardado no producía ninguna
+  // corrección y el raw volvía a la cola idéntico.
+  const task = getReviewTask(["merchant_id_missing"], null);
+  assert.deepEqual(task.missingFields, ["merchant_id"]);
+
+  const draftVals = makeVals({ merchant_id: "", merchant_name: "nike store" });
+
+  assert.deepEqual(getPendingFields(task, draftVals, draftVals), ["merchant_id"]);
+  assert.equal(
+    getPrimaryAction(task, draftVals, LABELS, draftVals).disabledReason,
+    "Asigná el merchant, o corregí su nombre para que el pipeline lo resuelva",
+  );
+
+  const pineado = makeVals({ merchant_id: "1d1f", merchant_name: "Nike" });
+  assert.deepEqual(getPendingFields(task, pineado, draftVals), []);
+
+  const renombrado = makeVals({ merchant_id: "", merchant_name: "Nike Chile" });
+  assert.deepEqual(getPendingFields(task, renombrado, draftVals), []);
+
+  const vaciado = makeVals({ merchant_id: "", merchant_name: "" });
+  assert.deepEqual(getPendingFields(task, vaciado, draftVals), ["merchant_id"]);
+});
+
+test("falta el nombre del merchant se resuelve escribiéndolo", () => {
+  const task = getReviewTask(["merchant_name_missing"], null);
+  assert.deepEqual(task.missingFields, ["merchant_name"]);
+
+  const vacio = makeVals({ merchant_name: "" });
+  assert.equal(
+    getPrimaryAction(task, vacio, { merchant_name: "Nombre del merchant" }, vacio).disabledReason,
+    "Completá Nombre del merchant",
+  );
+
+  const lleno = makeVals({ merchant_name: "Nike" });
+  assert.deepEqual(getPendingFields(task, lleno, vacio), []);
+});
+
+test("agrupa los campos genéricos y agrega los mensajes propios de cada campo", () => {
+  const task = getReviewTask(["channel_missing", "merchant_id_missing"], null);
+  const draftVals = makeVals({ channel: "", merchant_id: "", merchant_name: "nike store" });
+
+  assert.equal(
+    getPrimaryAction(task, draftVals, LABELS, draftVals).disabledReason,
+    "Completá Canal · Asigná el merchant, o corregí su nombre para que el pipeline lo resuelva",
+  );
+});
