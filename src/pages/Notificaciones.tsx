@@ -9,15 +9,21 @@ import {
   acceptedByExpo,
   acceptedByProvider,
   BODY_MAX,
-  buildCampaignData,
   type CampaignDeliveryCounts,
+  type CampaignDraftRef,
   type CampaignFormValues,
   type CampaignSendResponse,
+  campaignStatusLabel,
+  canCancelCampaign,
   createCampaignSchema,
   DEFAULT_SEARCH_MIN_QUERY_LENGTH,
   defaultCampaignValues,
   describeCampaignSendResult,
+  draftRpcParams,
+  parseDraftRow,
+  parseTestCampaignId,
   pendingDelivery,
+  sendConfirmationMessage,
   TITLE_MAX,
   totalFailed,
 } from "../lib/notificationCampaigns";
@@ -32,6 +38,7 @@ type CampaignRow = {
   created_at: string;
   sent_at: string | null;
   error_message: string | null;
+  test_of_campaign_id: string | null;
   deliveryCounts?: CampaignDeliveryCounts;
 };
 
@@ -59,16 +66,6 @@ type ReceiptReconciliationSummary = {
   receiptsMissing?: number;
 };
 
-function statusLabel(status: string): string {
-  switch (status) {
-    case "pending": return "Pendiente";
-    case "sending": return "Enviando";
-    case "sent": return "Procesada";
-    case "failed": return "Falló";
-    default: return status;
-  }
-}
-
 function Field({
   label,
   error,
@@ -89,7 +86,17 @@ function Field({
 
 // ---------- Lista de campañas ----------
 
-function CampaignsList({ campaigns, loading }: { campaigns: CampaignRow[]; loading: boolean }) {
+function CampaignsList({
+  campaigns,
+  loading,
+  onCancel,
+  cancellingId,
+}: {
+  campaigns: CampaignRow[];
+  loading: boolean;
+  onCancel: (campaign: CampaignRow) => void;
+  cancellingId: string | null;
+}) {
   return (
     <div className="overflow-x-auto rounded-lg border border-stone-200 bg-white">
       <table className="w-full text-sm">
@@ -103,6 +110,7 @@ function CampaignsList({ campaigns, loading }: { campaigns: CampaignRow[]; loadi
             <th className="px-4 py-3">Fallidas</th>
             <th className="px-4 py-3">Omitidas</th>
             <th className="px-4 py-3">Fecha</th>
+            <th className="px-4 py-3" />
           </tr>
         </thead>
         <tbody className="divide-y divide-stone-100">
@@ -110,6 +118,11 @@ function CampaignsList({ campaigns, loading }: { campaigns: CampaignRow[]; loadi
             <tr key={c.id}>
               <td className="min-w-52 px-4 py-3 font-medium text-stone-900">
                 {c.title}
+                {c.test_of_campaign_id ? (
+                  <span className="ml-2 rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-xs font-normal text-sky-700">
+                    Prueba
+                  </span>
+                ) : null}
                 {c.error_message ? <p className="mt-1 text-xs font-normal text-red-600">{c.error_message}</p> : null}
               </td>
               <td className="px-4 py-3">
@@ -122,7 +135,7 @@ function CampaignsList({ campaigns, loading }: { campaigns: CampaignRow[]; loadi
                         : "border-stone-200 bg-stone-100 text-stone-500"
                   }`}
                 >
-                  {statusLabel(c.status)}
+                  {campaignStatusLabel(c.status)}
                 </span>
               </td>
               <td className="px-4 py-3 text-stone-500">
@@ -143,11 +156,23 @@ function CampaignsList({ campaigns, loading }: { campaigns: CampaignRow[]; loadi
               <td className="px-4 py-3 text-stone-500">
                 {(c.sent_at ?? c.created_at).substring(0, 16).replace("T", " ")}
               </td>
+              <td className="px-4 py-3 text-right">
+                {canCancelCampaign(c.status) && !c.test_of_campaign_id ? (
+                  <button
+                    className="rounded-md border border-stone-300 px-2 py-1 text-xs text-stone-600 hover:bg-stone-50 disabled:opacity-60"
+                    disabled={cancellingId === c.id}
+                    onClick={() => onCancel(c)}
+                    type="button"
+                  >
+                    {cancellingId === c.id ? "Cancelando..." : "Cancelar"}
+                  </button>
+                ) : null}
+              </td>
             </tr>
           ))}
           {!loading && campaigns.length === 0 && (
             <tr>
-              <td className="px-4 py-8 text-center text-stone-400" colSpan={9}>
+              <td className="px-4 py-8 text-center text-stone-400" colSpan={10}>
                 Sin campañas todavía
               </td>
             </tr>
@@ -198,9 +223,12 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
   const [userResults, setUserResults] = useState<ProfileOption[]>([]);
   const [selectedUsers, setSelectedUsers] = useState<ProfileOption[]>([]);
 
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useState<"test" | "send" | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  // Borrador del formulario actual: una prueba y el envío real usan la misma
+  // campaña, y la aprobación exige la versión que se probó o editó al final.
+  const draftRef = useRef<CampaignDraftRef | null>(null);
 
   useEffect(() => {
     supabase
@@ -345,63 +373,101 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
     setValue("target_user_ids", next.map((x) => x.id), { shouldValidate: true });
   };
 
+  // Guarda el contenido del formulario como borrador (lo crea o edita la versión
+  // vigente). Si otra persona lo cambió entretanto, la RPC lo rechaza.
+  const saveDraft = async (values: CampaignFormValues): Promise<CampaignDraftRef> => {
+    const { data, error } = await supabase.rpc(
+      "admin_save_notification_campaign_draft",
+      draftRpcParams(values, draftRef.current),
+    );
+    const draft = parseDraftRow(data);
+    if (error || !draft) {
+      throw new Error(error?.message ?? "No se pudo guardar el borrador.");
+    }
+    draftRef.current = draft;
+    return draft;
+  };
+
+  const invokeSend = async (campaignId: string) => {
+    const token = await getFreshAccessToken();
+    if (!token) throw new Error("no autenticado.");
+    const { data, error } = await supabase.functions.invoke("send-campaign", {
+      body: { campaign_id: campaignId },
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (error) throw new Error(error.message);
+    return describeCampaignSendResult(campaignId, data as CampaignSendResponse | null);
+  };
+
+  const onTest = handleSubmit(async (values) => {
+    setSubmitting("test");
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      const draft = await saveDraft(values);
+      const { data, error } = await supabase.rpc("admin_create_notification_campaign_test", {
+        campaign_id: draft.id,
+      });
+      const testId = parseTestCampaignId(data);
+      if (error || !testId) throw new Error(error?.message ?? "No se pudo crear la prueba.");
+      const outcome = await invokeSend(testId);
+      if (outcome.ok) {
+        setSuccessMsg(`Prueba enviada a tu cuenta (versión ${draft.version}). ${outcome.message}`);
+      } else {
+        setErrorMsg(`La prueba no se completó: ${outcome.message}`);
+      }
+    } catch (error) {
+      setErrorMsg(`No se pudo probar: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setSubmitting(null);
+      onCreated();
+    }
+  });
+
   const onSubmit = handleSubmit(async (values) => {
-    setSubmitting(true);
+    if (!window.confirm(sendConfirmationMessage(values))) return;
+    setSubmitting("send");
     setErrorMsg(null);
     setSuccessMsg(null);
 
-    const payload = {
-      title: values.title.trim(),
-      body: values.body.trim(),
-      data: buildCampaignData(values),
-      target: values.audience,
-      target_user_ids: values.audience === "users" ? values.target_user_ids : null,
-    };
-
-    const { data: inserted, error: insertError } = await supabase
-      .from("notification_campaigns")
-      .insert(payload)
-      .select("id")
-      .single();
-
-    if (insertError || !inserted) {
-      setSubmitting(false);
-      setErrorMsg(insertError?.message ?? "No se pudo crear la campaña.");
-      return;
-    }
-
-    const token = await getFreshAccessToken();
-    if (!token) {
-      setSubmitting(false);
-      setErrorMsg("Campaña creada, pero no se pudo enviar: no autenticado.");
+    let draft: CampaignDraftRef;
+    try {
+      draft = await saveDraft(values);
+      const { error } = await supabase.rpc("admin_approve_notification_campaign", {
+        campaign_id: draft.id,
+        expected_version: draft.version,
+      });
+      if (error) throw new Error(error.message);
+    } catch (error) {
+      setSubmitting(null);
+      setErrorMsg(
+        `No se aprobó la campaña; queda como borrador: ${error instanceof Error ? error.message : String(error)}`,
+      );
       onCreated();
       return;
     }
 
-    const { data: functionData, error: fnError } = await supabase.functions.invoke("send-campaign", {
-      body: { campaign_id: inserted.id },
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    setSubmitting(false);
-    if (fnError) {
-      setErrorMsg(`Campaña creada, pero falló el envío: ${fnError.message}`);
-    } else {
-      const outcome = describeCampaignSendResult(
-        inserted.id,
-        functionData as CampaignSendResponse | null,
-      );
+    // Aprobada: ya no es un borrador editable. Un envío fallido se reintenta
+    // con la misma campaña, que send-campaign retoma de forma idempotente.
+    draftRef.current = null;
+    try {
+      const outcome = await invokeSend(draft.id);
       if (!outcome.ok) {
-        setErrorMsg(`Campaña creada, pero no se completó el envío: ${outcome.message}`);
-        onCreated();
-        return;
+        setErrorMsg(`Campaña aprobada, pero no se completó el envío: ${outcome.message}`);
+      } else {
+        setSuccessMsg(outcome.message);
+        reset(defaultCampaignValues);
+        setSelectedBenefit(null);
+        setSelectedUsers([]);
       }
-      setSuccessMsg(outcome.message);
-      reset(defaultCampaignValues);
-      setSelectedBenefit(null);
-      setSelectedUsers([]);
+    } catch (error) {
+      setErrorMsg(
+        `Campaña aprobada, pero falló el envío: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      setSubmitting(null);
+      onCreated();
     }
-    onCreated();
   });
 
   return (
@@ -630,14 +696,25 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
         <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{successMsg}</p>
       )}
 
-      <div>
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          className="rounded-md border border-stone-300 bg-white px-5 py-2 text-sm font-semibold text-stone-800 hover:bg-stone-50 disabled:opacity-60"
+          disabled={submitting !== null}
+          onClick={() => void onTest()}
+          type="button"
+        >
+          {submitting === "test" ? "Enviando prueba..." : "Enviar prueba a mi cuenta"}
+        </button>
         <button
           className="rounded-md bg-stone-900 px-5 py-2 text-sm font-semibold text-white hover:bg-stone-800 disabled:opacity-60"
-          disabled={submitting}
+          disabled={submitting !== null}
           type="submit"
         >
-          {submitting ? "Enviando..." : "Crear y enviar"}
+          {submitting === "send" ? "Enviando..." : "Aprobar y enviar"}
         </button>
+        <p className="text-xs text-stone-500">
+          La prueba usa el mismo contenido y llega sólo a tu cuenta.
+        </p>
       </div>
     </form>
   );
@@ -652,12 +729,13 @@ export function Notificaciones() {
   const [refreshingDeliveries, setRefreshingDeliveries] = useState(false);
   const [deliveryRefreshMessage, setDeliveryRefreshMessage] = useState<string | null>(null);
   const reconciledOnEntry = useRef(false);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   const loadCampaigns = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase
       .from("notification_campaigns")
-      .select("id, title, status, sent_count, error_message, created_at, sent_at")
+      .select("id, title, status, sent_count, error_message, created_at, sent_at, test_of_campaign_id")
       .order("created_at", { ascending: false })
       .limit(100);
     const rows = (data as CampaignRow[] | null) ?? [];
@@ -722,6 +800,20 @@ export function Notificaciones() {
     setRefreshingDeliveries(false);
   }, [loadCampaigns]);
 
+  const cancelCampaign = useCallback(async (campaign: CampaignRow) => {
+    if (!window.confirm(`¿Cancelar «${campaign.title}»? No se enviará.`)) return;
+    setCancellingId(campaign.id);
+    const { error } = await supabase.rpc("admin_cancel_notification_campaign", {
+      campaign_id: campaign.id,
+      reason: "Cancelada desde el backoffice",
+    });
+    setDeliveryRefreshMessage(
+      error ? `No se pudo cancelar: ${error.message}` : `Cancelada: ${campaign.title}`,
+    );
+    setCancellingId(null);
+    await loadCampaigns();
+  }, [loadCampaigns]);
+
   useEffect(() => {
     if (reconciledOnEntry.current) return;
     reconciledOnEntry.current = true;
@@ -780,7 +872,12 @@ export function Notificaciones() {
           {deliveryRefreshMessage ? (
             <p className="text-xs text-stone-500">{deliveryRefreshMessage}</p>
           ) : null}
-          <CampaignsList campaigns={campaigns} loading={loading} />
+          <CampaignsList
+            campaigns={campaigns}
+            cancellingId={cancellingId}
+            loading={loading}
+            onCancel={(campaign) => void cancelCampaign(campaign)}
+          />
         </div>
       </div>
     </div>

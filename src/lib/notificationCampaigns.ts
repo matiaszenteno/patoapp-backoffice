@@ -156,3 +156,63 @@ export function pendingDelivery(counts: CampaignDeliveryCounts): number {
 export function totalFailed(counts: CampaignDeliveryCounts): number {
   return counts.failed + counts.receipt_failed;
 }
+
+// ---------- Borrador, prueba y aprobación (decisión 0024 de patoapp) ----------
+
+/** Borrador guardado y la versión que el operador está viendo. */
+export type CampaignDraftRef = { id: string; version: number };
+
+/** Parámetros de `admin_save_notification_campaign_draft`. Con un borrador previo
+ * lo edita, y la RPC rechaza el cambio si otra persona lo modificó entretanto. */
+export function draftRpcParams(values: CampaignFormValues, draft: CampaignDraftRef | null) {
+  return {
+    title: values.title.trim(),
+    body: values.body.trim(),
+    data: buildCampaignData(values),
+    target: values.audience,
+    target_user_ids: values.audience === "users" ? values.target_user_ids : null,
+    campaign_id: draft?.id ?? null,
+    expected_version: draft?.version ?? null,
+  };
+}
+
+/** Las RPC de borrador, aprobación y cancelación devuelven una fila `{id, version}`. */
+export function parseDraftRow(data: unknown): CampaignDraftRef | null {
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || typeof row !== "object") return null;
+  const { id, version } = row as { id?: unknown; version?: unknown };
+  if (typeof id !== "string" || typeof version !== "number") return null;
+  return { id, version };
+}
+
+/** `admin_create_notification_campaign_test` devuelve el id de la copia a enviar. */
+export function parseTestCampaignId(data: unknown): string | null {
+  const row = Array.isArray(data) ? data[0] : data;
+  const id = (row as { test_campaign_id?: unknown } | null)?.test_campaign_id;
+  return typeof id === "string" ? id : null;
+}
+
+export function campaignStatusLabel(status: string): string {
+  switch (status) {
+    case "draft": return "Borrador";
+    case "pending": return "Aprobada";
+    case "sending": return "Enviando";
+    case "sent": return "Procesada";
+    case "failed": return "Falló";
+    case "cancelled": return "Cancelada";
+    default: return status;
+  }
+}
+
+/** Sólo un borrador o una campaña aprobada que send-campaign no tomó se cancelan. */
+export function canCancelCampaign(status: string): boolean {
+  return status === "draft" || status === "pending";
+}
+
+/** Texto de la confirmación previa al envío real: deja explícito a quién llega. */
+export function sendConfirmationMessage(values: CampaignFormValues): string {
+  const audience = values.audience === "all"
+    ? "TODAS las personas con notificaciones activas"
+    : `${values.target_user_ids.length} usuario(s) elegido(s)`;
+  return `Vas a aprobar y enviar «${values.title.trim()}» a ${audience}. ¿Continuar?`;
+}

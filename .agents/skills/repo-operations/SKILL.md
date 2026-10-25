@@ -52,6 +52,10 @@ Las EFs que invoca este backoffice viven en `patoapp-scrapers/supabase/functions
 `run-reprocess`, `trigger-scraper`, `run-refresh-ai-descriptions`, `manage-benefit`,
 `refresh-merchant-locations` y `personalized-notifications` (vista previa y envío de
 notificaciones personalizadas; contrato en `patoapp-scrapers/docs/notification-personalization.md`).
+En `patoapp/supabase/functions/` vive `send-campaign`. Las campañas manuales se crean y
+aprueban con las RPC `admin_save_notification_campaign_draft`,
+`admin_approve_notification_campaign`, `admin_create_notification_campaign_test` y
+`admin_cancel_notification_campaign` (catálogo en `patoapp/docs/campaign-capabilities.md`).
 
 Patrón de invocación:
 
