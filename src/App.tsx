@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { Layout } from "./components/Layout";
 import { Login } from "./pages/Login";
+import { OAuthConsent } from "./pages/OAuthConsent";
 import { BenefitsList } from "./pages/BenefitsList";
 import { BenefitEdit } from "./pages/BenefitEdit";
 import { Merchants } from "./pages/Merchants";
@@ -20,6 +21,7 @@ export default function App() {
     <BrowserRouter basename="/patoapp-backoffice">
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/oauth/consent" element={<OAuthConsent />} />
         <Route
           element={
             <ProtectedRoute>

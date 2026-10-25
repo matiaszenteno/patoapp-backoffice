@@ -5,12 +5,18 @@ import {
   acceptedByExpo,
   acceptedByProvider,
   buildCampaignData,
+  campaignStatusLabel,
+  canCancelCampaign,
   createCampaignSchema,
   defaultCampaignValues,
   describeCampaignSendResult,
+  draftRpcParams,
+  parseDraftRow,
+  parseTestCampaignId,
   inAppCampaignPushProblem,
   type InAppCampaignOption,
   pendingDelivery,
+  sendConfirmationMessage,
   totalFailed,
 } from "../src/lib/notificationCampaigns.ts";
 
@@ -77,6 +83,59 @@ test("separates Expo acceptance from provider receipts", () => {
   assert.equal(acceptedByProvider(counts), 5);
   assert.equal(pendingDelivery(counts), 1);
   assert.equal(totalFailed(counts), 2);
+});
+
+test("draft params create first and then edit the reviewed version", () => {
+  const values = {
+    ...defaultCampaignValues,
+    title: "  Beneficios nuevos ",
+    body: " Mira lo nuevo ",
+    dest: "profile" as const,
+    audience: "users" as const,
+    target_user_ids: ["u-1"],
+  };
+  assert.deepEqual(draftRpcParams(values, null), {
+    title: "Beneficios nuevos",
+    body: "Mira lo nuevo",
+    data: { dest: "profile" },
+    target: "users",
+    target_user_ids: ["u-1"],
+    campaign_id: null,
+    expected_version: null,
+  });
+  const edit = draftRpcParams({ ...values, audience: "all" }, { id: "c-1", version: 3 });
+  assert.equal(edit.campaign_id, "c-1");
+  assert.equal(edit.expected_version, 3);
+  assert.equal(edit.target_user_ids, null);
+});
+
+test("draft and test rows are parsed defensively", () => {
+  assert.deepEqual(parseDraftRow([{ id: "c-1", version: 2, status: "draft" }]), { id: "c-1", version: 2 });
+  assert.equal(parseDraftRow([]), null);
+  assert.equal(parseDraftRow([{ id: "c-1" }]), null);
+  assert.equal(parseTestCampaignId([{ test_campaign_id: "t-1", recipients: 1 }]), "t-1");
+  assert.equal(parseTestCampaignId(null), null);
+});
+
+test("status labels and cancellation follow the campaign lifecycle", () => {
+  assert.equal(campaignStatusLabel("draft"), "Borrador");
+  assert.equal(campaignStatusLabel("pending"), "Aprobada");
+  assert.equal(campaignStatusLabel("cancelled"), "Cancelada");
+  assert.equal(canCancelCampaign("draft"), true);
+  assert.equal(canCancelCampaign("pending"), true);
+  assert.equal(canCancelCampaign("sending"), false);
+  assert.equal(canCancelCampaign("sent"), false);
+});
+
+test("the send confirmation names the audience", () => {
+  assert.match(
+    sendConfirmationMessage({ ...defaultCampaignValues, title: "Hola", audience: "all" }),
+    /TODAS las personas/,
+  );
+  assert.match(
+    sendConfirmationMessage({ ...defaultCampaignValues, title: "Hola", audience: "users", target_user_ids: ["a", "b"] }),
+    /2 usuario\(s\)/,
+  );
 });
 
 const IN_APP_ID = "66666666-7777-8888-9999-000000000000";

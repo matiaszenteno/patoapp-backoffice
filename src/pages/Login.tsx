@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { safeNextPath } from "../lib/oauthConsent";
 import { supabase } from "../lib/supabase";
 
 export function Login() {
@@ -8,6 +9,9 @@ export function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  // El consentimiento OAuth manda aquí con ?next= para volver a la misma autorización.
+  const [params] = useSearchParams();
+  const next = safeNextPath(params.get("next"));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,7 +37,7 @@ export function Login() {
     }
 
     setLoading(false);
-    navigate("/inicio");
+    navigate(next ?? "/inicio");
   };
 
   return (
