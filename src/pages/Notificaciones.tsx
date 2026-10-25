@@ -22,6 +22,8 @@ import {
   draftRpcParams,
   parseDraftRow,
   parseTestCampaignId,
+  inAppCampaignPushProblem,
+  type InAppCampaignOption,
   pendingDelivery,
   sendConfirmationMessage,
   TITLE_MAX,
@@ -212,6 +214,8 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
   const dest = watch("dest");
   const discoveryFilter = watch("discoveryFilter");
   const audience = watch("audience");
+  const inAppCampaignId = watch("in_app_campaign_id");
+  const targetUserIds = watch("target_user_ids");
 
   const [categories, setCategories] = useState<CategoryOption[]>([]);
 
@@ -222,6 +226,9 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
   const [userSearch, setUserSearch] = useState("");
   const [userResults, setUserResults] = useState<ProfileOption[]>([]);
   const [selectedUsers, setSelectedUsers] = useState<ProfileOption[]>([]);
+
+  const [inAppCampaigns, setInAppCampaigns] = useState<InAppCampaignOption[] | null>(null);
+  const [inAppCampaignsError, setInAppCampaignsError] = useState<string | null>(null);
 
   const [submitting, setSubmitting] = useState<"test" | "send" | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -251,6 +258,42 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
         }
       });
   }, []);
+
+  // Campañas in-app activas que una push puede anunciar. Se cargan al elegir ese
+  // destino; RLS sólo deja leer todas las campañas a admins.
+  useEffect(() => {
+    if (dest !== "in_app_campaign") return;
+    let active = true;
+    setInAppCampaigns(null);
+    setInAppCampaignsError(null);
+    supabase
+      .from("in_app_campaigns")
+      .select("id, image_url, accessibility_label, cta_label, starts_at, ends_at, target, target_user_ids")
+      .eq("status", "active")
+      .or(`ends_at.is.null,ends_at.gt.${new Date().toISOString()}`)
+      .order("starts_at", { ascending: false })
+      .limit(50)
+      .then(({ data, error }) => {
+        if (!active) return;
+        if (error) {
+          setInAppCampaignsError(error.message);
+          setInAppCampaigns([]);
+          return;
+        }
+        setInAppCampaigns((data as InAppCampaignOption[] | null) ?? []);
+      });
+    return () => {
+      active = false;
+    };
+  }, [dest]);
+
+  const selectedInAppCampaign = useMemo(
+    () => inAppCampaigns?.find((campaign) => campaign.id === inAppCampaignId) ?? null,
+    [inAppCampaigns, inAppCampaignId],
+  );
+  const inAppProblem = selectedInAppCampaign
+    ? inAppCampaignPushProblem(selectedInAppCampaign, audience, targetUserIds)
+    : null;
 
   // Autocomplete de beneficios publicados (status='active'), por título.
   useEffect(() => {
@@ -337,6 +380,11 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
       clearErrors("benefit_id");
     }
 
+    if (next !== "in_app_campaign") {
+      setValue("in_app_campaign_id", "", { shouldValidate: false });
+      clearErrors("in_app_campaign_id");
+    }
+
     if (next !== "feed" && next !== "nearby") {
       setValue("discoveryFilter", "none", { shouldValidate: false });
       setValue("category_slug", "", { shouldValidate: false });
@@ -400,9 +448,15 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
   };
 
   const onTest = handleSubmit(async (values) => {
-    setSubmitting("test");
     setErrorMsg(null);
     setSuccessMsg(null);
+    // La prueba usa una copia del modal, pero send-campaign aplica las mismas
+    // reglas de ventana: se avisa antes de crear el borrador.
+    if (values.dest === "in_app_campaign" && inAppProblem) {
+      setErrorMsg(`No se probó la campaña: ${inAppProblem}`);
+      return;
+    }
+    setSubmitting("test");
     try {
       const draft = await saveDraft(values);
       const { data, error } = await supabase.rpc("admin_create_notification_campaign_test", {
@@ -425,10 +479,14 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
   });
 
   const onSubmit = handleSubmit(async (values) => {
-    if (!window.confirm(sendConfirmationMessage(values))) return;
-    setSubmitting("send");
     setErrorMsg(null);
     setSuccessMsg(null);
+    if (values.dest === "in_app_campaign" && inAppProblem) {
+      setErrorMsg(`No se creó la campaña: ${inAppProblem}`);
+      return;
+    }
+    if (!window.confirm(sendConfirmationMessage(values))) return;
+    setSubmitting("send");
 
     let draft: CampaignDraftRef;
     try {
@@ -499,6 +557,7 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
             { value: "feed", label: "Feed" },
             { value: "nearby", label: "Cerca" },
             { value: "profile", label: "Perfil" },
+            { value: "in_app_campaign", label: "Campaña in-app" },
           ] as const).map((opt) => (
             <label
               key={opt.value}
@@ -617,6 +676,60 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
 
         {dest === "profile" && (
           <p className="text-sm text-stone-500">Abre la pestaña Perfil.</p>
+        )}
+
+        {dest === "in_app_campaign" && (
+          <div className="flex flex-col gap-3 rounded-md border border-stone-200 p-3">
+            <p className="text-sm text-stone-500">
+              No cambia de pantalla: al tocar la push, la app muestra esta campaña in-app aunque la
+              persona ya la haya visto. Las versiones anteriores de la app sólo se abren.
+            </p>
+            {inAppCampaigns === null && <p className="text-sm text-stone-500">Cargando campañas activas…</p>}
+            {inAppCampaignsError && (
+              <p className="text-sm text-red-600">No se pudieron cargar las campañas: {inAppCampaignsError}</p>
+            )}
+            {inAppCampaigns?.length === 0 && !inAppCampaignsError && (
+              <p className="text-sm text-stone-600">
+                No hay campañas in-app activas. Publicá una antes de crear la push.
+              </p>
+            )}
+            {inAppCampaigns?.map((campaign) => (
+              <label
+                key={campaign.id}
+                className={`flex cursor-pointer items-start gap-3 rounded-md border p-2 text-sm ${
+                  inAppCampaignId === campaign.id
+                    ? "border-stone-900 bg-stone-100"
+                    : "border-stone-200 hover:border-stone-400"
+                }`}
+              >
+                <input
+                  checked={inAppCampaignId === campaign.id}
+                  className="mt-1 h-4 w-4"
+                  onChange={() => setValue("in_app_campaign_id", campaign.id, { shouldValidate: true })}
+                  type="radio"
+                  value={campaign.id}
+                />
+                <img alt="" className="h-20 w-16 rounded object-cover" src={campaign.image_url} />
+                <span className="flex flex-col gap-1">
+                  <span className="text-stone-900">{campaign.accessibility_label}</span>
+                  <span className="text-xs text-stone-500">
+                    {campaign.cta_label ? `Botón: ${campaign.cta_label}` : "Sin botón"} · Desde{" "}
+                    {new Date(campaign.starts_at).toLocaleString("es-CL")}
+                    {campaign.ends_at
+                      ? ` hasta ${new Date(campaign.ends_at).toLocaleString("es-CL")}`
+                      : " sin fecha de término"}{" "}
+                    · {campaign.target === "all"
+                      ? "Todos"
+                      : `${campaign.target_user_ids?.length ?? 0} usuarios específicos`}
+                  </span>
+                </span>
+              </label>
+            ))}
+            {errors.in_app_campaign_id && (
+              <p className="text-xs text-red-600">{errors.in_app_campaign_id.message}</p>
+            )}
+            {inAppProblem && <p className="text-sm text-amber-700">{inAppProblem}</p>}
+          </div>
         )}
       </div>
 

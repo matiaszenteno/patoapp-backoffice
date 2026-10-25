@@ -13,6 +13,8 @@ import {
   draftRpcParams,
   parseDraftRow,
   parseTestCampaignId,
+  inAppCampaignPushProblem,
+  type InAppCampaignOption,
   pendingDelivery,
   sendConfirmationMessage,
   totalFailed,
@@ -134,4 +136,47 @@ test("the send confirmation names the audience", () => {
     sendConfirmationMessage({ ...defaultCampaignValues, title: "Hola", audience: "users", target_user_ids: ["a", "b"] }),
     /2 usuario\(s\)/,
   );
+});
+
+const IN_APP_ID = "66666666-7777-8888-9999-000000000000";
+const NOW = new Date("2026-10-24T12:00:00Z");
+const IN_APP: InAppCampaignOption = {
+  id: IN_APP_ID,
+  image_url: "https://example.com/emisores.png",
+  accessibility_label: "3 nuevos emisores",
+  cta_label: "Agregar emisores",
+  starts_at: "2026-10-24T00:00:00Z",
+  ends_at: null,
+  target: "all",
+  target_user_ids: null,
+};
+
+test("builds a push that announces an in-app campaign", () => {
+  assert.deepEqual(
+    buildCampaignData({ ...defaultCampaignValues, dest: "in_app_campaign", in_app_campaign_id: IN_APP_ID }),
+    { dest: "in_app_campaign", campaign_id: IN_APP_ID },
+  );
+  const missing = createCampaignSchema(3).safeParse({
+    ...defaultCampaignValues,
+    title: "Nuevos emisores",
+    body: "Toca para verlos",
+    dest: "in_app_campaign",
+  });
+  assert.equal(missing.success, false);
+});
+
+test("warns about an in-app campaign that send-campaign would reject", () => {
+  assert.equal(inAppCampaignPushProblem(IN_APP, "all", [], NOW), null);
+  assert.equal(
+    inAppCampaignPushProblem({ ...IN_APP, starts_at: "2026-10-25T00:00:00Z" }, "all", [], NOW),
+    "La campaña in-app todavía no empieza.",
+  );
+  assert.equal(
+    inAppCampaignPushProblem({ ...IN_APP, ends_at: "2026-10-25T11:00:00Z" }, "all", [], NOW),
+    "La campaña in-app termina en menos de 24 horas.",
+  );
+  const listed = { ...IN_APP, target: "users" as const, target_user_ids: ["u-1", "u-2"] };
+  assert.match(inAppCampaignPushProblem(listed, "all", [], NOW) ?? "", /usuarios específicos/);
+  assert.match(inAppCampaignPushProblem(listed, "users", ["u-3"], NOW) ?? "", /subconjunto/);
+  assert.equal(inAppCampaignPushProblem(listed, "users", ["u-1"], NOW), null);
 });

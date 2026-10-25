@@ -4,7 +4,7 @@ export const DEFAULT_SEARCH_MIN_QUERY_LENGTH = 3;
 export const TITLE_MAX = 120;
 export const BODY_MAX = 300;
 
-export type CampaignDestination = "none" | "benefit" | "feed" | "nearby" | "profile";
+export type CampaignDestination = "none" | "benefit" | "feed" | "nearby" | "profile" | "in_app_campaign";
 export type DiscoveryFilter = "none" | "category" | "query";
 
 export type CampaignFormValues = {
@@ -12,6 +12,7 @@ export type CampaignFormValues = {
   body: string;
   dest: CampaignDestination;
   benefit_id: string;
+  in_app_campaign_id: string;
   discoveryFilter: DiscoveryFilter;
   category_slug: string;
   query: string;
@@ -24,6 +25,7 @@ export const defaultCampaignValues: CampaignFormValues = {
   body: "",
   dest: "feed",
   benefit_id: "",
+  in_app_campaign_id: "",
   discoveryFilter: "none",
   category_slug: "",
   query: "",
@@ -36,8 +38,9 @@ export function createCampaignSchema(minQueryLength: number) {
     .object({
       title: z.string().min(1, "Requerido").max(TITLE_MAX, `Máximo ${TITLE_MAX} caracteres`),
       body: z.string().min(1, "Requerido").max(BODY_MAX, `Máximo ${BODY_MAX} caracteres`),
-      dest: z.enum(["none", "benefit", "feed", "nearby", "profile"]),
+      dest: z.enum(["none", "benefit", "feed", "nearby", "profile", "in_app_campaign"]),
       benefit_id: z.string(),
+      in_app_campaign_id: z.string(),
       discoveryFilter: z.enum(["none", "category", "query"]),
       category_slug: z.string(),
       query: z.string(),
@@ -47,6 +50,14 @@ export function createCampaignSchema(minQueryLength: number) {
     .superRefine((value, context) => {
       if (value.dest === "benefit" && !value.benefit_id) {
         context.addIssue({ code: z.ZodIssueCode.custom, path: ["benefit_id"], message: "Seleccioná un beneficio." });
+      }
+
+      if (value.dest === "in_app_campaign" && !value.in_app_campaign_id) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["in_app_campaign_id"],
+          message: "Seleccioná una campaña in-app.",
+        });
       }
 
       const discoveryDestination = value.dest === "feed" || value.dest === "nearby";
@@ -75,6 +86,9 @@ export function buildCampaignData(values: CampaignFormValues): Record<string, un
     return { dest: "benefit", benefit_id: values.benefit_id };
   }
   if (values.dest === "profile") return { dest: "profile" };
+  if (values.dest === "in_app_campaign") {
+    return { dest: "in_app_campaign", campaign_id: values.in_app_campaign_id };
+  }
   if (values.discoveryFilter === "category") {
     return { dest: values.dest, category_slug: values.category_slug };
   }
@@ -215,4 +229,49 @@ export function sendConfirmationMessage(values: CampaignFormValues): string {
     ? "TODAS las personas con notificaciones activas"
     : `${values.target_user_ids.length} usuario(s) elegido(s)`;
   return `Vas a aprobar y enviar «${values.title.trim()}» a ${audience}. ¿Continuar?`;
+}
+
+/** Campaña in-app activa que una push puede anunciar (decisión 0022 de patoapp). */
+export type InAppCampaignOption = {
+  id: string;
+  image_url: string;
+  accessibility_label: string;
+  cta_label: string | null;
+  starts_at: string;
+  ends_at: string | null;
+  target: "all" | "users";
+  target_user_ids: string[] | null;
+};
+
+/** Mismo margen que exige send-campaign en el primer envío. */
+export const IN_APP_CAMPAIGN_PUSH_MIN_REMAINING_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Replica en el formulario las reglas con que send-campaign rechaza una push que
+ * anuncia una campaña in-app, para avisar antes de crearla. send-campaign sigue
+ * siendo la validación autoritativa.
+ */
+export function inAppCampaignPushProblem(
+  campaign: InAppCampaignOption,
+  audience: CampaignFormValues["audience"],
+  targetUserIds: string[],
+  now: Date = new Date(),
+): string | null {
+  if (new Date(campaign.starts_at).getTime() > now.getTime()) {
+    return "La campaña in-app todavía no empieza.";
+  }
+  if (campaign.ends_at) {
+    const remainingMs = new Date(campaign.ends_at).getTime() - now.getTime();
+    if (remainingMs <= 0) return "La campaña in-app ya terminó.";
+    if (remainingMs < IN_APP_CAMPAIGN_PUSH_MIN_REMAINING_MS) {
+      return "La campaña in-app termina en menos de 24 horas.";
+    }
+  }
+  if (campaign.target === "users") {
+    const inAppUsers = new Set(campaign.target_user_ids ?? []);
+    if (audience !== "users" || !targetUserIds.every((id) => inAppUsers.has(id))) {
+      return "La campaña in-app es para usuarios específicos: la push debe ir a esos mismos usuarios o a un subconjunto.";
+    }
+  }
+  return null;
 }
