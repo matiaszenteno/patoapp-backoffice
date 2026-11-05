@@ -70,6 +70,10 @@ export type PlanRequest = {
   error: string | null;
   created_at: string;
   sent_at: string | null;
+  /** `schedule` si la creó una regla programada (decisión 0029). */
+  origin?: "manual" | "schedule";
+  /** Por qué una solicitud programada no salió sola y espera un envío manual. */
+  held_reason?: string | null;
 };
 
 export const MAX_TARGET_USERS = 100;

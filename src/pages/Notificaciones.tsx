@@ -5,6 +5,13 @@ import { supabase } from "../lib/supabase";
 import { getFreshAccessToken } from "../lib/auth";
 import { inputCls, selectCls } from "../lib/styles";
 import { PersonalizedNotifications } from "../components/notifications/PersonalizedNotifications";
+import { ScheduledNotifications } from "../components/notifications/ScheduledNotifications";
+import {
+  campaignScheduleError,
+  chileWallTimeToDate,
+  formatChile,
+  TIME_SLOTS,
+} from "../lib/notificationSchedules";
 import {
   acceptedByExpo,
   acceptedByProvider,
@@ -41,6 +48,7 @@ type CampaignRow = {
   sent_at: string | null;
   error_message: string | null;
   test_of_campaign_id: string | null;
+  scheduled_at: string | null;
   deliveryCounts?: CampaignDeliveryCounts;
 };
 
@@ -124,6 +132,9 @@ function CampaignsList({
                   <span className="ml-2 rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-xs font-normal text-sky-700">
                     Prueba
                   </span>
+                ) : null}
+                {c.status === "pending" && c.scheduled_at ? (
+                  <p className="mt-1 text-xs font-normal text-sky-700">Programada para {formatChile(c.scheduled_at)}</p>
                 ) : null}
                 {c.error_message ? <p className="mt-1 text-xs font-normal text-red-600">{c.error_message}</p> : null}
               </td>
@@ -231,6 +242,10 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
   const [inAppCampaignsError, setInAppCampaignsError] = useState<string | null>(null);
 
   const [submitting, setSubmitting] = useState<"test" | "send" | null>(null);
+  // Programar el envío (decisión 0029): fecha y hora de pared en Chile.
+  const [scheduleOn, setScheduleOn] = useState(false);
+  const [scheduleDay, setScheduleDay] = useState("");
+  const [scheduleTime, setScheduleTime] = useState("19:00");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   // Borrador del formulario actual: una prueba y el envío real usan la misma
@@ -485,12 +500,29 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
       setErrorMsg(`No se creó la campaña: ${inAppProblem}`);
       return;
     }
-    if (!window.confirm(sendConfirmationMessage(values))) return;
+    const scheduledAt = scheduleOn ? chileWallTimeToDate(scheduleDay, scheduleTime) : null;
+    if (scheduleOn) {
+      const problem = campaignScheduleError(scheduledAt, new Date());
+      if (problem) {
+        setErrorMsg(`No se programó: ${problem}`);
+        return;
+      }
+    }
+    if (!window.confirm(sendConfirmationMessage(values, scheduledAt ? formatChile(scheduledAt) : null))) return;
     setSubmitting("send");
 
     let draft: CampaignDraftRef;
     try {
       draft = await saveDraft(values);
+      // La hora se fija en el borrador, antes de aprobar: una campaña aprobada sin
+      // hora la enviaría cualquier invocación de send-campaign.
+      if (scheduledAt) {
+        const { error: scheduleError } = await supabase.rpc("admin_schedule_notification_campaign", {
+          campaign_id: draft.id,
+          scheduled_at: scheduledAt.toISOString(),
+        });
+        if (scheduleError) throw new Error(scheduleError.message);
+      }
       const { error } = await supabase.rpc("admin_approve_notification_campaign", {
         campaign_id: draft.id,
         expected_version: draft.version,
@@ -508,6 +540,18 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
     // Aprobada: ya no es un borrador editable. Un envío fallido se reintenta
     // con la misma campaña, que send-campaign retoma de forma idempotente.
     draftRef.current = null;
+    if (scheduledAt) {
+      setSuccessMsg(
+        `Programada para ${formatChile(scheduledAt)} (hora de Chile). Sale sola si las programadas están encendidas; se cancela desde el historial.`,
+      );
+      reset(defaultCampaignValues);
+      setSelectedBenefit(null);
+      setSelectedUsers([]);
+      setScheduleOn(false);
+      setSubmitting(null);
+      onCreated();
+      return;
+    }
     try {
       const outcome = await invokeSend(draft.id);
       if (!outcome.ok) {
@@ -809,6 +853,22 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
         <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{successMsg}</p>
       )}
 
+      <div className="flex flex-col gap-2 rounded-md border border-stone-200 p-3">
+        <label className="flex items-center gap-2 text-sm font-medium text-stone-700">
+          <input checked={scheduleOn} className="h-4 w-4" onChange={(e) => setScheduleOn(e.target.checked)} type="checkbox" />
+          Programar el envío
+        </label>
+        {scheduleOn ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <input className={inputCls} onChange={(e) => setScheduleDay(e.target.value)} type="date" value={scheduleDay} />
+            <select className={selectCls} onChange={(e) => setScheduleTime(e.target.value)} value={scheduleTime}>
+              {TIME_SLOTS.map((slot) => <option key={slot} value={slot}>{slot}</option>)}
+            </select>
+            <span className="text-xs text-stone-500">Hora de Chile, entre 09:00 y 21:00, hasta 60 días. Si a esa hora el programador no corre, no sale tarde.</span>
+          </div>
+        ) : null}
+      </div>
+
       <div className="flex flex-wrap items-center gap-3">
         <button
           className="rounded-md border border-stone-300 bg-white px-5 py-2 text-sm font-semibold text-stone-800 hover:bg-stone-50 disabled:opacity-60"
@@ -823,7 +883,7 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
           disabled={submitting !== null}
           type="submit"
         >
-          {submitting === "send" ? "Enviando..." : "Aprobar y enviar"}
+          {submitting === "send" ? (scheduleOn ? "Programando..." : "Enviando...") : scheduleOn ? "Aprobar y programar" : "Aprobar y enviar"}
         </button>
         <p className="text-xs text-stone-500">
           La prueba usa el mismo contenido y llega sólo a tu cuenta.
@@ -836,7 +896,9 @@ function CampaignForm({ onCreated }: { onCreated: () => void }) {
 // ---------- Página ----------
 
 export function Notificaciones() {
-  const [mode, setMode] = useState<"campaign" | "personalized">("campaign");
+  const [mode, setMode] = useState<"campaign" | "personalized" | "scheduled">("campaign");
+  // Una ocurrencia programada abre su solicitud en la pestaña Personalizada.
+  const [openRequestId, setOpenRequestId] = useState<string | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshingDeliveries, setRefreshingDeliveries] = useState(false);
@@ -848,7 +910,7 @@ export function Notificaciones() {
     setLoading(true);
     const { data } = await supabase
       .from("notification_campaigns")
-      .select("id, title, status, sent_count, error_message, created_at, sent_at, test_of_campaign_id")
+      .select("id, title, status, sent_count, error_message, created_at, sent_at, test_of_campaign_id, scheduled_at")
       .order("created_at", { ascending: false })
       .limit(100);
     const rows = (data as CampaignRow[] | null) ?? [];
@@ -939,7 +1001,7 @@ export function Notificaciones() {
         <div>
           <h1 className="text-xl font-bold text-stone-900">Notificaciones</h1>
           <p className="mt-0.5 text-sm text-stone-500">
-            Campañas con el mismo texto para todos, o personalizadas con un beneficio distinto para cada persona.
+            Campañas con el mismo texto para todos, personalizadas con un beneficio distinto para cada persona, o programadas para ciertos días.
           </p>
         </div>
 
@@ -947,13 +1009,17 @@ export function Notificaciones() {
           {([
             { value: "campaign", label: "Campaña manual" },
             { value: "personalized", label: "Personalizada" },
+            { value: "scheduled", label: "Programadas" },
           ] as const).map((tab) => (
             <button
               className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${
                 mode === tab.value ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-800"
               }`}
               key={tab.value}
-              onClick={() => setMode(tab.value)}
+              onClick={() => {
+                setOpenRequestId(null);
+                setMode(tab.value);
+              }}
               type="button"
             >
               {tab.label}
@@ -961,7 +1027,18 @@ export function Notificaciones() {
           ))}
         </div>
 
-        {mode === "personalized" ? <PersonalizedNotifications /> : null}
+        {mode === "personalized" ? (
+          <PersonalizedNotifications initialRequestId={openRequestId} key={openRequestId ?? "new"} />
+        ) : null}
+
+        {mode === "scheduled" ? (
+          <ScheduledNotifications
+            onOpenRequest={(requestId) => {
+              setOpenRequestId(requestId);
+              setMode("personalized");
+            }}
+          />
+        ) : null}
 
         {mode === "campaign" ? <CampaignForm onCreated={loadCampaigns} /> : null}
 
