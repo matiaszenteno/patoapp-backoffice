@@ -138,6 +138,13 @@ test("the send confirmation names the audience", () => {
   );
 });
 
+test("the confirmation of a scheduled campaign names its time", () => {
+  assert.equal(
+    sendConfirmationMessage({ ...defaultCampaignValues, title: "Hola", audience: "all" }, "jue, 5 nov, 19:00"),
+    "Vas a aprobar y programar para jue, 5 nov, 19:00 (hora de Chile) «Hola» a TODAS las personas con notificaciones activas. ¿Continuar?",
+  );
+});
+
 const IN_APP_ID = "66666666-7777-8888-9999-000000000000";
 const NOW = new Date("2026-10-24T12:00:00Z");
 const IN_APP: InAppCampaignOption = {
