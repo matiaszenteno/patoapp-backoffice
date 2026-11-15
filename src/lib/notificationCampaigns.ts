@@ -224,11 +224,12 @@ export function canCancelCampaign(status: string): boolean {
 }
 
 /** Texto de la confirmación previa al envío real: deja explícito a quién llega. */
-export function sendConfirmationMessage(values: CampaignFormValues): string {
+export function sendConfirmationMessage(values: CampaignFormValues, scheduledFor: string | null = null): string {
   const audience = values.audience === "all"
     ? "TODAS las personas con notificaciones activas"
     : `${values.target_user_ids.length} usuario(s) elegido(s)`;
-  return `Vas a aprobar y enviar «${values.title.trim()}» a ${audience}. ¿Continuar?`;
+  const action = scheduledFor ? `aprobar y programar para ${scheduledFor} (hora de Chile)` : "aprobar y enviar";
+  return `Vas a ${action} «${values.title.trim()}» a ${audience}. ¿Continuar?`;
 }
 
 /** Campaña in-app activa que una push puede anunciar (decisión 0022 de patoapp). */

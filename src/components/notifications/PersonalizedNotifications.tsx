@@ -13,6 +13,7 @@ import {
   sendBlocker,
   skippedCount,
 } from "../../lib/personalizedNotifications";
+import { formatChile } from "../../lib/notificationSchedules";
 import { inputCls } from "../../lib/styles";
 import { supabase } from "../../lib/supabase";
 
@@ -20,11 +21,13 @@ type ProfileOption = { id: string; label: string };
 
 // El historial no trae `preview`: con "Todos" pesa cerca de 1 MB por solicitud.
 const LIST_COLUMNS =
-  "id, audience, target_user_ids, status, plan_hash, as_of, summary, delivery, error, created_at, sent_at";
+  "id, audience, target_user_ids, status, plan_hash, as_of, summary, delivery, error, created_at, sent_at, origin, held_reason";
 const DETAIL_COLUMNS = `${LIST_COLUMNS}, preview`;
 const PREVIEW_PAGE = 100;
 
-async function invokePersonalized(body: Record<string, unknown>): Promise<{ request_id?: string; error?: string }> {
+async function invokePersonalized(
+  body: Record<string, unknown>,
+): Promise<{ request_id?: string; scheduled_for?: string; error?: string }> {
   const token = await getFreshAccessToken();
   if (!token) return { error: "Sesión no disponible; vuelve a ingresar." };
   const { data, error } = await supabase.functions.invoke("personalized-notifications", {
@@ -37,7 +40,7 @@ async function invokePersonalized(body: Record<string, unknown>): Promise<{ requ
     const detail = context ? await context.json().catch(() => null) : null;
     return { error: (detail as { error?: string } | null)?.error ?? error.message };
   }
-  return data as { request_id?: string };
+  return data as { request_id?: string; scheduled_for?: string };
 }
 
 function Stat({ label, value, tone = "stone" }: { label: string; value: number; tone?: "stone" | "emerald" | "amber" }) {
@@ -145,13 +148,15 @@ function PreviewTable({ request, categories }: { request: PlanRequest; categorie
   );
 }
 
-export function PersonalizedNotifications() {
+/** `initialRequestId` abre una solicitud, p. ej. la retenida de una regla programada. */
+export function PersonalizedNotifications({ initialRequestId = null }: { initialRequestId?: string | null } = {}) {
   const [audience, setAudience] = useState<"users" | "all">("users");
   const [userSearch, setUserSearch] = useState("");
   const [userResults, setUserResults] = useState<ProfileOption[]>([]);
   const [selectedUsers, setSelectedUsers] = useState<ProfileOption[]>([]);
   const [requests, setRequests] = useState<PlanRequest[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(initialRequestId);
+  const [infoMsg, setInfoMsg] = useState<string | null>(null);
   const [active, setActive] = useState<PlanRequest | null>(null);
   const [categories, setCategories] = useState<Map<string, string>>(new Map());
   const [typedRecipients, setTypedRecipients] = useState("");
@@ -265,6 +270,8 @@ export function PersonalizedNotifications() {
     });
     setBusy(false);
     if (result.error) setErrorMsg(`No se envió: ${result.error}`);
+    // Vista previa de una regla review_before: queda aprobada y sale a su hora.
+    setInfoMsg(result.scheduled_for ? `Aprobada. Sale a las ${formatChile(result.scheduled_for)} (hora de Chile).` : null);
     await Promise.all([loadActive(active.id), loadRequests()]);
   };
 
@@ -380,6 +387,14 @@ export function PersonalizedNotifications() {
                 : "Calculando qué recibiría cada persona…"}
             </p>
           ) : null}
+          {active.status === "ready" && active.held_reason ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              Programada y retenida. {active.held_reason} Puedes enviarla a mano hoy si el plan se ve bien.
+            </p>
+          ) : null}
+          {infoMsg && active.status === "approved" ? (
+            <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-800">{infoMsg}</p>
+          ) : null}
           {active.status === "failed" ? (
             <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{active.error ?? "Falló sin motivo registrado."}</p>
           ) : null}
@@ -454,7 +469,10 @@ export function PersonalizedNotifications() {
                   }}
                 >
                   <td className="px-4 py-3 text-stone-500">{request.created_at.substring(0, 16).replace("T", " ")}</td>
-                  <td className="px-4 py-3">{request.audience === "all" ? "Todos" : `${request.target_user_ids?.length ?? 0} usuarios`}</td>
+                  <td className="px-4 py-3">
+                    {request.audience === "all" ? "Todos" : `${request.target_user_ids?.length ?? 0} usuarios`}
+                    {request.origin === "schedule" ? <span className="ml-2 text-xs text-stone-400">programada</span> : null}
+                  </td>
                   <td className="px-4 py-3"><StatusBadge status={request.status} /></td>
                   <td className="px-4 py-3 text-stone-600">{request.summary?.selected ?? "—"}</td>
                   <td className="px-4 py-3 text-xs text-stone-600">
